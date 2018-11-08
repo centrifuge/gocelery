@@ -3,11 +3,8 @@ package gocelery
 import (
 	"encoding/json"
 	"math/rand"
-	"os"
 	"reflect"
 	"testing"
-
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func makeCeleryMessage() (*CeleryMessage, error) {
@@ -23,21 +20,13 @@ func makeCeleryMessage() (*CeleryMessage, error) {
 
 // test all brokers
 func getBrokers(t *testing.T) ([]CeleryBroker, func()) {
-	path := getRandomTestStoragePath(t)
-	levelDB, err := leveldb.OpenFile(path, nil)
-	if err != nil {
-		t.Fatalf("failed to open levelDb: %v", err)
-	}
-
+	levelDB, funcC := getLevelDB(t)
 	return []CeleryBroker{
-			NewRedisCeleryBroker("redis://localhost:6379"),
-			//NewAMQPCeleryBroker("amqp://"),
-			NewInMemoryBroker(),
-			NewLevelDBBroker(levelDB, "test"),
-		}, func() {
-			levelDB.Close()
-			os.Remove(path)
-		}
+		NewRedisCeleryBroker("redis://localhost:6379"),
+		//NewAMQPCeleryBroker("amqp://"),
+		NewInMemoryBroker(),
+		NewLevelDBBroker(levelDB, "test"),
+	}, funcC
 }
 
 // TestSend is Redis specific test that sets CeleryMessage to queue

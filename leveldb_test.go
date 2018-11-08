@@ -1,6 +1,8 @@
 package gocelery
 
 import (
+	cr "crypto/rand"
+	"fmt"
 	"os"
 	"testing"
 
@@ -8,6 +10,26 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+func getRandomTestStoragePath(t *testing.T) string {
+	r := make([]byte, 32)
+	n, err := cr.Read(r)
+	assert.Nil(t, err)
+	assert.Equal(t, n, 32)
+	return fmt.Sprintf("%s_%x", "/tmp/centrifuge_data.leveldb_TESTING", r)
+}
+
+func getLevelDB(t *testing.T) (*leveldb.DB, func()) {
+	path := getRandomTestStoragePath(t)
+	levelDB, err := leveldb.OpenFile(path, nil)
+	if err != nil {
+		t.Fatalf("failed to open levelDb: %v", err)
+	}
+
+	return levelDB, func() {
+		levelDB.Close()
+		os.Remove(path)
+	}
+}
 func TestLevelDBBroker_SaveLoadState(t *testing.T) {
 	path := getRandomTestStoragePath(t)
 	db, err := leveldb.OpenFile(path, nil)

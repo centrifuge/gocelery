@@ -1,41 +1,21 @@
 package gocelery
 
 import (
-	cr "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func getRandomTestStoragePath(t *testing.T) string {
-	r := make([]byte, 32)
-	n, err := cr.Read(r)
-	assert.Nil(t, err)
-	assert.Equal(t, n, 32)
-	return fmt.Sprintf("%s_%x", "/tmp/centrifuge_data.leveldb_TESTING", r)
-}
-
 func getBackends(t *testing.T) ([]CeleryBackend, func()) {
-	path := getRandomTestStoragePath(t)
-	levelDB, err := leveldb.OpenFile(path, nil)
-	if err != nil {
-		t.Fatalf("failed to open levelDb: %v", err)
-	}
+	levelDB, funcC := getLevelDB(t)
 	return []CeleryBackend{
-			NewRedisCeleryBackend("redis://localhost:6379"),
-			NewAMQPCeleryBackend("amqp://"),
-			NewInMemoryBackend(),
-			NewLevelDBBackend(levelDB),
-		}, func() {
-			levelDB.Close()
-			os.Remove(path)
-		}
+		NewRedisCeleryBackend("redis://localhost:6379"),
+		NewAMQPCeleryBackend("amqp://"),
+		NewInMemoryBackend(),
+		NewLevelDBBackend(levelDB),
+	}, funcC
 }
 
 // TestGetResult is Redis specific test to get result from backend
