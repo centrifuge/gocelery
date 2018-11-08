@@ -6,13 +6,25 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
+
+	"github.com/centrifuge/go-centrifuge/utils"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func getBackends() []CeleryBackend {
+func getRandomTestStoragePath() string {
+	return fmt.Sprintf("%s_%x", "/tmp/centrifuge_data.leveldb_TESTING", utils.RandomByte32())
+}
+
+func getBackends(t *testing.T) []CeleryBackend {
+	levelDB, err := leveldb.OpenFile(getRandomTestStoragePath(), nil)
+	if err != nil {
+		t.Fatalf("failed to open levelDb: %v", err)
+	}
 	return []CeleryBackend{
-		NewRedisCeleryBackend("redis://localhost:6379"),
-		NewAMQPCeleryBackend("amqp://"),
+		//NewRedisCeleryBackend("redis://localhost:6379"),
+		//NewAMQPCeleryBackend("amqp://"),
 		NewInMemoryBackend(),
+		NewLevelDBBackend(levelDB),
 	}
 }
 
@@ -78,11 +90,10 @@ func TestSetResult(t *testing.T) {
 
 // TestSetGetResult tests set/get result feature for all backends
 func TestSetGetResult(t *testing.T) {
-	for _, backend := range getBackends() {
+	for _, backend := range getBackends(t) {
 		taskID := generateUUID()
 		value := reflect.ValueOf(rand.Float64())
 		resultMessage := getReflectionResultMessage(&value)
-		defer releaseResultMessage(resultMessage)
 		// set result
 		err := backend.SetResult(taskID, resultMessage)
 		if err != nil {
@@ -96,5 +107,7 @@ func TestSetGetResult(t *testing.T) {
 		if !reflect.DeepEqual(res, resultMessage) {
 			t.Errorf("result message received %v is different from original %v", res, resultMessage)
 		}
+
+		releaseResultMessage(resultMessage)
 	}
 }
