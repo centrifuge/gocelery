@@ -11,9 +11,10 @@ import (
 
 // levelDBBroker implements CeleryBroker backed by levelDB
 type levelDBBroker struct {
-	db   *leveldb.DB
-	head uint
-	tail uint
+	db    *leveldb.DB
+	queue string
+	head  uint
+	tail  uint
 
 	mu sync.Mutex // protect head and tail
 }
@@ -26,23 +27,25 @@ type levelDBBrokerState struct {
 
 // NewLevelDBBroker returns levelDB backed implementation of CeleryBroker
 // We will also initialise any previous state
-func NewLevelDBBroker(db *leveldb.DB) CeleryBroker {
+func NewLevelDBBroker(db *leveldb.DB, queue string) CeleryBroker {
 	brk := &levelDBBroker{
-		db:   db,
-		head: 0,
-		tail: 0,
+		db:    db,
+		queue: queue,
+		head:  0,
+		tail:  0,
 	}
 
 	// restore the old state from the DB
-	brk.initialiseState()
+	brk.loadBrokerState()
 
 	return brk
 }
 
-// initialiseState loads any previous state if any available
+// loadBrokerState loads any previous state if any available
 // logs any state retrieval errors
-func (lbrk *levelDBBroker) initialiseState() {
-	data, err := lbrk.db.Get([]byte("celery-leveldb-broker-state"), nil)
+func (lbrk *levelDBBroker) loadBrokerState() {
+	key := []byte(fmt.Sprintf("celery-leveldb-broker-state-%s", lbrk.queue))
+	data, err := lbrk.db.Get(key, nil)
 	if err != nil {
 		return
 	}
@@ -68,7 +71,8 @@ func (lbrk *levelDBBroker) saveBrokerState() error {
 		return err
 	}
 
-	err = lbrk.db.Put([]byte("celery-leveldb-broker-state"), data, nil)
+	key := []byte(fmt.Sprintf("celery-leveldb-broker-state-%s", lbrk.queue))
+	err = lbrk.db.Put(key, data, nil)
 	if err != nil {
 		return err
 	}

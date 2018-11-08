@@ -3,6 +3,7 @@ package gocelery
 import (
 	"encoding/json"
 	"math/rand"
+	"os"
 	"reflect"
 	"testing"
 
@@ -21,18 +22,22 @@ func makeCeleryMessage() (*CeleryMessage, error) {
 }
 
 // test all brokers
-func getBrokers(t *testing.T) []CeleryBroker {
-	levelDB, err := leveldb.OpenFile(getRandomTestStoragePath(), nil)
+func getBrokers(t *testing.T) ([]CeleryBroker, func()) {
+	path := getRandomTestStoragePath(t)
+	levelDB, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		t.Fatalf("failed to open levelDb: %v", err)
 	}
 
 	return []CeleryBroker{
-		NewRedisCeleryBroker("redis://localhost:6379"),
-		//NewAMQPCeleryBroker("amqp://"),
-		NewInMemoryBroker(),
-		NewLevelDBBroker(levelDB),
-	}
+			NewRedisCeleryBroker("redis://localhost:6379"),
+			//NewAMQPCeleryBroker("amqp://"),
+			NewInMemoryBroker(),
+			NewLevelDBBroker(levelDB, "test"),
+		}, func() {
+			levelDB.Close()
+			os.Remove(path)
+		}
 }
 
 // TestSend is Redis specific test that sets CeleryMessage to queue
@@ -95,7 +100,9 @@ func TestGet(t *testing.T) {
 
 // TestSendGet tests set/get features for all brokers
 func TestSendGet(t *testing.T) {
-	for _, broker := range getBrokers(t) {
+	brokers, funcC := getBrokers(t)
+	defer funcC()
+	for _, broker := range brokers {
 		celeryMessage, err := makeCeleryMessage()
 		if err != nil || celeryMessage == nil {
 			t.Errorf("failed to construct celery message: %v", err)
