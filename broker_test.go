@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
+
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func makeCeleryMessage() (*CeleryMessage, error) {
@@ -19,11 +21,17 @@ func makeCeleryMessage() (*CeleryMessage, error) {
 }
 
 // test all brokers
-func getBrokers() []CeleryBroker {
+func getBrokers(t *testing.T) []CeleryBroker {
+	levelDB, err := leveldb.OpenFile(getRandomTestStoragePath(), nil)
+	if err != nil {
+		t.Fatalf("failed to open levelDb: %v", err)
+	}
+
 	return []CeleryBroker{
 		NewRedisCeleryBroker("redis://localhost:6379"),
 		//NewAMQPCeleryBroker("amqp://"),
 		NewInMemoryBroker(),
+		NewLevelDBBroker(levelDB),
 	}
 }
 
@@ -87,12 +95,12 @@ func TestGet(t *testing.T) {
 
 // TestSendGet tests set/get features for all brokers
 func TestSendGet(t *testing.T) {
-	for _, broker := range getBrokers() {
+	for _, broker := range getBrokers(t) {
 		celeryMessage, err := makeCeleryMessage()
 		if err != nil || celeryMessage == nil {
 			t.Errorf("failed to construct celery message: %v", err)
 		}
-		defer releaseCeleryMessage(celeryMessage)
+
 		err = broker.SendCeleryMessage(celeryMessage)
 		if err != nil {
 			t.Errorf("failed to send celery message to broker: %v", err)
@@ -106,5 +114,7 @@ func TestSendGet(t *testing.T) {
 		if !reflect.DeepEqual(message, originalMessage) {
 			t.Errorf("received message %v different from original message %v", message, originalMessage)
 		}
+
+		releaseCeleryMessage(celeryMessage)
 	}
 }

@@ -21,8 +21,8 @@ func getBackends(t *testing.T) []CeleryBackend {
 		t.Fatalf("failed to open levelDb: %v", err)
 	}
 	return []CeleryBackend{
-		//NewRedisCeleryBackend("redis://localhost:6379"),
-		//NewAMQPCeleryBackend("amqp://"),
+		NewRedisCeleryBackend("redis://localhost:6379"),
+		NewAMQPCeleryBackend("amqp://"),
 		NewInMemoryBackend(),
 		NewLevelDBBackend(levelDB),
 	}

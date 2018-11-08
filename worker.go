@@ -69,7 +69,7 @@ func (w *CeleryWorker) StartWorker() {
 						log.Println(err)
 					}
 
-					// release the result resources here
+					// release the result resources
 					releaseResultMessage(resultMsg)
 				}
 			}
