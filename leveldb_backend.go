@@ -33,8 +33,8 @@ func (ldb levelDBBackend) GetResult(key string) (*ResultMessage, error) {
 	return res, nil
 }
 
-// SetResult stores the result at key taskID
-func (ldb levelDBBackend) SetResult(taskID string, result *ResultMessage) error {
+// SetResult stores the result at key
+func (ldb levelDBBackend) SetResult(key string, result *ResultMessage) error {
 	if result == nil {
 		return fmt.Errorf("empty result")
 	}
@@ -44,5 +44,5 @@ func (ldb levelDBBackend) SetResult(taskID string, result *ResultMessage) error 
 		return fmt.Errorf("failed to marshall result: %v", err)
 	}
 
-	return ldb.db.Put([]byte(fmt.Sprintf("celery-leveldb-result-%s", taskID)), data, nil)
+	return ldb.db.Put([]byte(fmt.Sprintf("celery-leveldb-result-%s", key)), data, nil)
 }
