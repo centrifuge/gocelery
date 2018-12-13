@@ -25,10 +25,11 @@ func (b *inMemoryBackend) GetResult(taskID string) (*ResultMessage, error) {
 	return nil, errors.New("task does not exist")
 }
 
-func (b *inMemoryBackend) SetResult(taskID string, result *ResultMessage) error {
+func (b *inMemoryBackend) SetResult(taskID string, res *ResultMessage) error {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	b.ResultStore[taskID] = result
+	result := *res
+	b.ResultStore[taskID] = &result
 	return nil
 }
 

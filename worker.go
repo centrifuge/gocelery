@@ -161,6 +161,7 @@ func (w *CeleryWorker) RunTask(message *TaskMessage) (*ResultMessage, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return getResultMessage(val), err
 	}
 	//log.Println("using reflection")

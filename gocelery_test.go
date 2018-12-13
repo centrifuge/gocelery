@@ -104,10 +104,10 @@ func getClients(db *leveldb.DB, queue string) ([]*CeleryClient, error) {
 		return nil, err
 	}
 
-	//inMemoryClient, err := getInMemoryClient(1)
-	//if err != nil {
-	//	return nil, err
-	//}
+	inMemoryClient, err := getInMemoryClient(1)
+	if err != nil {
+		return nil, err
+	}
 
 	levelDBClient, err := getLevelDBClient(1, db, queue)
 	if err != nil {
@@ -116,7 +116,7 @@ func getClients(db *leveldb.DB, queue string) ([]*CeleryClient, error) {
 
 	return []*CeleryClient{
 		redisClient,
-		//inMemoryClient,
+		inMemoryClient,
 		levelDBClient,
 	}, nil
 }
