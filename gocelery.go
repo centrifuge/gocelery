@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+// errString implements error interface.
+type errString string
+
+// Error returns the error in string.
+func (e errString) Error() string {
+	return string(e)
+}
+
+// ErrTaskRetryable indicates that the task failed but need to be retried again.
+const ErrTaskRetryable = errString("task failed but retryable")
+
 // CeleryClient provides API for sending celery tasks
 type CeleryClient struct {
 	broker  CeleryBroker
@@ -49,16 +60,12 @@ func (cc *CeleryClient) StopWorker() {
 }
 
 // Delay gets asynchronous result
-func (cc *CeleryClient) Delay(task string, args ...interface{}) (*AsyncResult, error) {
-	celeryTask := getTaskMessage(task)
-	celeryTask.Args = args
-	return cc.delay(celeryTask)
-}
+func (cc *CeleryClient) Delay(task Task) (*AsyncResult, error) {
+	if len(task.Args) > 0 && len(task.Kwargs) > 0 {
+		return nil, fmt.Errorf("either args or kwargs need to be set, but not both")
+	}
 
-// DelayKwargs gets asynchronous results with argument map
-func (cc *CeleryClient) DelayKwargs(task string, args map[string]interface{}) (*AsyncResult, error) {
 	celeryTask := getTaskMessage(task)
-	celeryTask.Kwargs = args
 	return cc.delay(celeryTask)
 }
 

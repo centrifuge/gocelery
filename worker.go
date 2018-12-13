@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// defaultWaitTime to fallback to if the provided waitTime is 0.
+const defaultWaitTime = 1
+
 // CeleryWorker represents distributed task worker.
 // Not thread safe. Shouldn't be used from within multiple go routines.
 type CeleryWorker struct {
@@ -23,6 +26,10 @@ type CeleryWorker struct {
 
 // NewCeleryWorker returns new celery worker
 func NewCeleryWorker(broker CeleryBroker, backend CeleryBackend, numWorkers int, waitTimeMS int) *CeleryWorker {
+	if waitTimeMS < 1 {
+		waitTimeMS = defaultWaitTime
+	}
+
 	return &CeleryWorker{
 		broker:          broker,
 		backend:         backend,
@@ -54,26 +61,45 @@ func (w *CeleryWorker) StartWorker() {
 						continue
 					}
 
-					//log.Printf("WORKER %d task message received: %v\n", workerID, taskMessage)
-
 					// run task
 					resultMsg, err := w.RunTask(taskMessage)
-					if err != nil {
-						log.Println(err)
+					if err == nil {
+						// happy path
+						w.storeResult(taskMessage.ID, resultMsg)
+
+						// release the result resources
+						releaseResultMessage(resultMsg)
 						continue
 					}
 
-					// push result to backend
-					err = w.backend.SetResult(taskMessage.ID, resultMsg)
-					if err != nil {
-						log.Println(err)
+					taskMessage.Retries++
+					if err != ErrTaskRetryable || taskMessage.Retries >= taskMessage.Settings.MaxRetries {
+						// not a retryable error. move on
+						continue
 					}
 
-					// release the result resources
-					releaseResultMessage(resultMsg)
+					// retryable error enqueue the task again
+					enc, err := taskMessage.Encode()
+					if err != nil {
+						log.Println(fmt.Errorf("failed to encode Task Message: %v", err))
+						continue
+					}
+
+					err = w.broker.SendCeleryMessage(getCeleryMessage(enc))
+					if err != nil {
+						log.Println(fmt.Errorf("failed to enqueue Task: %v", err))
+					}
 				}
 			}
 		}(i)
+	}
+}
+
+func (w *CeleryWorker) storeResult(taskID string, result *ResultMessage) {
+	// push result to backend
+	err := w.backend.SetResult(taskID, result)
+	if err != nil {
+		log.Println(err)
 	}
 }
 
@@ -171,6 +197,6 @@ func runTaskFunc(taskFunc *reflect.Value, message *TaskMessage) (*ResultMessage,
 	if len(res) == 0 {
 		return nil, nil
 	}
-	//defer releaseResultMessage(resultMessage)
+	//defer releaseResultMessage(ResultMessage)
 	return getReflectionResultMessage(&res[0]), nil
 }
