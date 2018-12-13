@@ -45,14 +45,6 @@
   revision = "b2ce2384e17bbe0c6d34077efa39dbab3e09123b"
 
 [[projects]]
-  branch = "master"
-  digest = "1:68284c262f45718a220f7e817c2125a0f20eb3924be5074fa187ff7bc600c47e"
-  name = "github.com/streadway/amqp"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "27835f1a64e97101d95306211f03c0620ffa295d"
-
-[[projects]]
   digest = "1:18752d0b95816a1b777505a97f71c7467a8445b8ffb55631a7bf779f6ba4fa83"
   name = "github.com/stretchr/testify"
   packages = ["assert"]
@@ -86,7 +78,6 @@
   input-imports = [
     "github.com/gomodule/redigo/redis",
     "github.com/satori/go.uuid",
-    "github.com/streadway/amqp",
     "github.com/stretchr/testify/assert",
     "github.com/syndtr/goleveldb/leveldb",
   ]
