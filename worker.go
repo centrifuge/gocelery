@@ -75,6 +75,10 @@ func (w *CeleryWorker) StartWorker() {
 					taskMessage.Retries++
 					if err != ErrTaskRetryable || taskMessage.Retries >= taskMessage.Settings.MaxRetries {
 						// not a retryable error. move on
+						res := getResultMessage(nil)
+						res.Error = err.Error()
+						w.storeResult(taskMessage.ID, res)
+						releaseResultMessage(res)
 						continue
 					}
 
@@ -119,19 +123,18 @@ func (w *CeleryWorker) GetNumWorkers() int {
 // Register registers tasks (functions)
 func (w *CeleryWorker) Register(name string, task interface{}) {
 	w.taskLock.Lock()
+	defer w.taskLock.Unlock()
 	w.registeredTasks[name] = task
-	w.taskLock.Unlock()
 }
 
 // GetTask retrieves registered task
 func (w *CeleryWorker) GetTask(name string) interface{} {
 	w.taskLock.RLock()
+	defer w.taskLock.RUnlock()
 	task, ok := w.registeredTasks[name]
 	if !ok {
-		w.taskLock.RUnlock()
 		return nil
 	}
-	w.taskLock.RUnlock()
 	return task
 }
 

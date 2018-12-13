@@ -30,12 +30,14 @@ func (cb *redisCeleryBackend) GetResult(taskID string) (*ResultMessage, error) {
 	if val == nil {
 		return nil, fmt.Errorf("result not available")
 	}
-	var resultMessage ResultMessage
-	err = json.Unmarshal(val.([]byte), &resultMessage)
+
+	result := new(ResultMessage)
+	err = json.Unmarshal(val.([]byte), result)
 	if err != nil {
 		return nil, err
 	}
-	return &resultMessage, nil
+
+	return result, nil
 }
 
 // SetResult pushes result back into backend

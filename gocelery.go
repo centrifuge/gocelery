@@ -122,16 +122,22 @@ func (ar *AsyncResult) Get(timeout time.Duration) (interface{}, error) {
 			err := fmt.Errorf("%v timeout getting result for %s", timeout, ar.taskID)
 			return nil, err
 		case <-ticker.C:
-			val, err := ar.AsyncGet()
-			if err != nil {
+			if ready := ar.Ready(); !ready {
 				continue
 			}
-			return val, nil
+
+			if ar.result.Error != "" {
+				return nil, fmt.Errorf(ar.result.Error)
+			}
+
+			return ar.result.Result, nil
 		}
 	}
 }
 
-// AsyncGet gets actual result from redis and returns nil if not available
+// AsyncGet gets actual result from backend
+// returns the err if the result is not available yet.
+// Always check Ready if the result is ready to be consumed
 func (ar *AsyncResult) AsyncGet() (interface{}, error) {
 	if ar.result != nil {
 		return ar.result.Result, nil
@@ -141,25 +147,21 @@ func (ar *AsyncResult) AsyncGet() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if val == nil {
-		return nil, err
-	}
-	if val.Status != "SUCCESS" {
-		return nil, fmt.Errorf("error response status %v", val)
-	}
+
 	ar.result = val
 	return val.Result, nil
 }
 
 // Ready checks if actual result is ready
-func (ar *AsyncResult) Ready() (bool, error) {
+func (ar *AsyncResult) Ready() bool {
 	if ar.result != nil {
-		return true, nil
+		return true
 	}
 	val, err := ar.backend.GetResult(ar.taskID)
 	if err != nil {
-		return false, err
+		return false
 	}
+
 	ar.result = val
-	return val != nil, nil
+	return true
 }

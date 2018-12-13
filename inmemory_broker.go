@@ -1,6 +1,8 @@
 package gocelery
 
-import "sync"
+import (
+	"sync"
+)
 
 type inMemoryBroker struct {
 	taskQueue []*TaskMessage
