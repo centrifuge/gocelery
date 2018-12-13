@@ -21,7 +21,7 @@ func TestInMemoryBroker_Concurrency(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			//testMastersWorkers(test.numMasters, test.numWorkers, test.numMessagesPerMaster, t)
+			testMastersWorkers(test.numMasters, test.numWorkers, test.numMessagesPerMaster, t)
 		})
 	}
 }
@@ -31,7 +31,7 @@ func testMastersWorkers(numMasters int, numWorkers int, numMessagesPerMaster int
 	// create worker go routines that receive messages
 	resultChannel := make(chan string)
 	for i := 0; i < numWorkers; i++ {
-		go receiveMessages(ib, resultChannel)
+		go receiveMessages(ib, resultChannel, numMasters*numMessagesPerMaster)
 	}
 	// make the messages
 	ids := make(map[string]bool)
@@ -79,17 +79,22 @@ func checkMessages(t *testing.T, resultChannel chan string, ids map[string]bool,
 	}
 }
 
-func receiveMessages(ib *inMemoryBroker, resultChannel chan string) {
+func receiveMessages(ib *inMemoryBroker, resultChannel chan string, totalMsgs int) {
 	// wait for messages to become available from masters, otherwise the workers will exit too early
 	time.Sleep(10 * time.Millisecond)
-	for !ib.isEmpty() {
+	c := 0
+	for c < totalMsgs {
 		msg, err := ib.GetTaskMessage()
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		if msg == nil {
+			continue
+		}
+
 		resultChannel <- msg.ID
-		// less than this and workers try to access invalid memory addresses
-		time.Sleep(100 * time.Microsecond)
+		c++
 	}
 }
 
