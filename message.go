@@ -170,6 +170,11 @@ func getTaskMessage(task Task) *TaskMessage {
 	return msg
 }
 
+// isRetryable to check if the task is retryable again.
+func (tm *TaskMessage) isRetryable() bool {
+	return tm.Retries < tm.Settings.MaxRetries
+}
+
 func releaseTaskMessage(v *TaskMessage) {
 	v.reset()
 	taskMessagePool.Put(v)

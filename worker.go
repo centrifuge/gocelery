@@ -73,7 +73,7 @@ func (w *CeleryWorker) StartWorker() {
 					}
 
 					taskMessage.Retries++
-					if err != ErrTaskRetryable || taskMessage.Retries >= taskMessage.Settings.MaxRetries {
+					if err != ErrTaskRetryable || !taskMessage.isRetryable() {
 						// not a retryable error. move on
 						res := getResultMessage(nil)
 						res.Error = err.Error()
