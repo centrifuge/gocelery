@@ -92,11 +92,11 @@ func runTaskTest(celeryWorker *CeleryWorker, numWorkers int) error {
 	res := add(args[0].(int), args[1].(int))
 	// construct task message
 	taskMessage := &TaskMessage{
-		ID:      generateUUID(),
-		Task:    taskName,
-		Args:    args,
-		Kwargs:  nil,
-		Retries: 1,
+		ID:     generateUUID(),
+		Task:   taskName,
+		Args:   args,
+		Kwargs: nil,
+		Tries:  1,
 	}
 	resultMsg, err := celeryWorker.RunTask(taskMessage)
 	if err != nil {
