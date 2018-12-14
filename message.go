@@ -31,7 +31,7 @@ type Task struct {
 	Name     string
 	Args     []interface{}
 	Kwargs   map[string]interface{}
-	Settings *TaskSettings // if Overrides is nil, we fallback to default values
+	Settings *TaskSettings // if Settings is nil, we fallback to default values
 }
 
 // CeleryMessage is actual message to be sent to Redis

@@ -191,7 +191,7 @@ func checkRetryTask(t *testing.T, c *CeleryClient, taskName string) {
 	c.Register(taskName, retryTask)
 	runRetryableTask(t, c, Task{Name: taskName, Settings: DefaultSettings()}, 3, false)
 
-	// fail for 2 times with 3 retries
+	// fail for 3 times with 3 retries
 	retryTask = &retryableTask{fail: true, failFor: 3}
 	c.Register(taskName, retryTask)
 	runRetryableTask(t, c, Task{Name: taskName, Settings: DefaultSettings()}, 2, true)
