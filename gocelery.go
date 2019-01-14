@@ -79,8 +79,8 @@ func checkSettings(s *TaskSettings) *TaskSettings {
 		s.MaxTries = MaxRetries
 	}
 
-	if s.ETA.IsZero() {
-		s.ETA = time.Now().UTC()
+	if s.Delay.IsZero() {
+		s.Delay = time.Now().UTC()
 	}
 
 	return s

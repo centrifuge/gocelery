@@ -358,14 +358,14 @@ func Test_checkSettings(t *testing.T) {
 	}
 
 	for _, c := range tests {
-		s := TaskSettings{MaxTries: c.tries, ETA: c.time}
+		s := TaskSettings{MaxTries: c.tries, Delay: c.time}
 		es := checkSettings(&s)
 
 		if c.eTries != es.MaxTries {
 			t.Fatalf("%v != %v", c.eTries, es.MaxTries)
 		}
 
-		if es.ETA.IsZero() {
+		if es.Delay.IsZero() {
 			t.Fatal("expected non zero time")
 		}
 	}

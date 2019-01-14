@@ -23,14 +23,14 @@ const (
 // TaskSettings can be passed to the task with specific overrides.
 type TaskSettings struct {
 	MaxTries uint      `json:"max_tries"`
-	ETA      time.Time `json:"eta"`
+	Delay    time.Time `json:"delay"`
 }
 
 // DefaultSettings returns the TaskSettings with all the default values and will be used if the Task.Settings is nil.
 func DefaultSettings() *TaskSettings {
 	return &TaskSettings{
 		MaxTries: defaultMaxTries,
-		ETA:      time.Now().UTC(),
+		Delay:    time.Now().UTC(),
 	}
 }
 

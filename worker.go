@@ -62,7 +62,7 @@ func (w *CeleryWorker) StartWorker() {
 					}
 
 					// check if the we can run the task now
-					if time.Now().UTC().Before(task.Settings.ETA) {
+					if time.Now().UTC().Before(task.Settings.Delay) {
 						w.reEnqueueTask(task)
 						continue
 					}
@@ -88,8 +88,8 @@ func (w *CeleryWorker) StartWorker() {
 						continue
 					}
 
-					task.Settings.ETA = time.Now().UTC().Add(defaultBackOff * time.Duration(task.Tries))
-					log.Printf("retrying task after: %v\n", task.Settings.ETA)
+					task.Settings.Delay = time.Now().UTC().Add(defaultBackOff * time.Duration(task.Tries))
+					log.Printf("retrying task after: %v\n", task.Settings.Delay)
 					w.reEnqueueTask(task)
 				}
 			}
