@@ -345,8 +345,8 @@ func Test_checkSettings(t *testing.T) {
 		},
 
 		{
-			tries:  20,
-			eTries: 15,
+			tries:  1001,
+			eTries: 1000,
 		},
 
 		{
