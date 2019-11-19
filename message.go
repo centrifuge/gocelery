@@ -13,7 +13,8 @@ const (
 	defaultMaxTries = 3
 
 	// MaxRetries runs the task until task stop returning ErrTaskRetryable
-	MaxRetries = 15
+	// Max set to 28 days for 5 second backoff
+	MaxRetries = 1000
 
 	// defaultBackOff with current tries for back off
 	defaultBackOff = time.Second * 5
