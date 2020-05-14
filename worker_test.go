@@ -198,6 +198,7 @@ func checkRetryTask(t *testing.T, c *CeleryClient, taskName string) {
 }
 
 func TestCeleryWorker_RunTask_retries(t *testing.T) {
+	t.Parallel()
 	ws, funcC := getWorkers(t, 10)
 	defer funcC()
 	for i, w := range ws {
@@ -205,6 +206,37 @@ func TestCeleryWorker_RunTask_retries(t *testing.T) {
 		c.worker = w
 		go c.StartWorker()
 		checkRetryTask(t, c, fmt.Sprintf("task-%v", i))
+		c.StopWorker()
+	}
+}
+
+func Test_getBackoffTime(t *testing.T) {
+	for i := 1; i < 1000; i++ {
+		d := getBackOffTime(uint(i))
+		if i < 60 && d.Seconds() != (defaultBackOff*time.Duration(i)).Seconds() {
+			t.Fail()
+		}
+
+		if i > 60 && d.Seconds() != maxBackoffTime.Seconds() {
+			t.Fail()
+		}
+	}
+}
+
+func Test_ValidUntil(t *testing.T) {
+	t.Parallel()
+	ws, funcC := getWorkers(t, 10)
+	defer funcC()
+	for i, w := range ws {
+		c, _ := NewCeleryClient(w.broker, w.backend, w.numWorkers, w.waitTimeMS)
+		c.worker = w
+		go c.StartWorker()
+		retryTask := &retryableTask{fail: true, failFor: 100000}
+		name := fmt.Sprintf("valid_until_task_%d", i)
+		c.Register(name, retryTask)
+		settings := DefaultSettings()
+		settings.ValidUntil = time.Now().Add(10 * time.Second)
+		runRetryableTask(t, c, Task{Name: name, Settings: settings}, 1, true)
 		c.StopWorker()
 	}
 }

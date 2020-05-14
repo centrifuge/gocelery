@@ -91,13 +91,22 @@ func (w *CeleryWorker) StartWorker() {
 						continue
 					}
 
-					task.Settings.Delay = time.Now().UTC().Add(defaultBackOff * time.Duration(task.Tries))
+					task.Settings.Delay = time.Now().UTC().Add(getBackOffTime(task.Tries))
 					log.Debugf("retrying task after: %v\n", task.Settings.Delay)
 					w.reEnqueueTask(task)
 				}
 			}
 		}(i)
 	}
+}
+
+func getBackOffTime(tries uint) time.Duration {
+	d := defaultBackOff * time.Duration(tries)
+	if d.Minutes() > maxBackoffTime.Minutes() {
+		return maxBackoffTime
+	}
+
+	return d
 }
 
 func (w *CeleryWorker) reEnqueueTask(task *TaskMessage) {
@@ -182,7 +191,6 @@ func (w *CeleryWorker) RunTask(message *TaskMessage) (*ResultMessage, error) {
 
 		return getResultMessage(val), err
 	}
-	//log.Println("using reflection")
 
 	// use reflection to execute function ptr
 	taskFunc := reflect.ValueOf(task)
@@ -216,6 +224,6 @@ func runTaskFunc(taskFunc *reflect.Value, message *TaskMessage) (*ResultMessage,
 	if len(res) == 0 {
 		return nil, nil
 	}
-	//defer releaseResultMessage(ResultMessage)
+
 	return getReflectionResultMessage(&res[0]), nil
 }

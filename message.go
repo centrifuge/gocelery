@@ -12,25 +12,28 @@ const (
 	// defaultMaxTries is the default max retries.
 	defaultMaxTries = 3
 
-	// MaxRetries runs the task until task stop returning ErrTaskRetryable
-	// Max set to 28 days for 5 second backoff
-	MaxRetries = 1000
+	// MaxValidTime signifies how long is valid by default
+	// Max set to 12 hrs
+	MaxValidTime = 12 * time.Hour
 
 	// defaultBackOff with current tries for back off
 	defaultBackOff = time.Second * 5
+
+	// maxBackOffTime to backoff at a delay
+	maxBackoffTime = time.Minute * 5
 )
 
 // TaskSettings can be passed to the task with specific overrides.
 type TaskSettings struct {
-	MaxTries uint      `json:"max_tries"`
-	Delay    time.Time `json:"delay"`
+	Delay      time.Time `json:"delay"`
+	ValidUntil time.Time `json:"valid_until"`
 }
 
 // DefaultSettings returns the TaskSettings with all the default values and will be used if the Task.Settings is nil.
 func DefaultSettings() *TaskSettings {
 	return &TaskSettings{
-		MaxTries: defaultMaxTries,
-		Delay:    time.Now().UTC(),
+		ValidUntil: time.Now().Add(MaxValidTime),
+		Delay:      time.Now().UTC(),
 	}
 }
 
@@ -180,7 +183,7 @@ func getTaskMessage(task Task) *TaskMessage {
 
 // isRetryable to check if the task is retryable again.
 func (tm *TaskMessage) isRetryable() bool {
-	return tm.Tries < tm.Settings.MaxTries
+	return time.Now().Before(tm.Settings.ValidUntil)
 }
 
 func releaseTaskMessage(v *TaskMessage) {
