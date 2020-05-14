@@ -75,8 +75,8 @@ func checkSettings(s *TaskSettings) *TaskSettings {
 		return DefaultSettings()
 	}
 
-	if s.MaxTries > MaxRetries {
-		s.MaxTries = MaxRetries
+	if s.ValidUntil.IsZero() {
+		s.ValidUntil = time.Now().Add(MaxValidTime)
 	}
 
 	if s.Delay.IsZero() {
@@ -129,7 +129,7 @@ type AsyncResult struct {
 }
 
 // Get gets actual result from redis
-// It blocks for period of time set by timeout and return error if unavailable
+// It blocks for period of delay set by timeout and return error if unavailable
 func (ar *AsyncResult) Get(timeout time.Duration) (interface{}, error) {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	timeoutChan := time.After(timeout)

@@ -315,7 +315,7 @@ func TestBlockingGet(t *testing.T) {
 
 		wg.Wait()
 		if asyncError == nil {
-			t.Errorf("failed to timeout in time")
+			t.Errorf("failed to timeout in delay")
 			return
 		}
 
@@ -335,37 +335,15 @@ func convertInterface(val interface{}) int {
 }
 
 func Test_checkSettings(t *testing.T) {
-	tests := []struct {
-		tries  uint
-		time   time.Time
-		eTries uint
-	}{
-		{
-			tries: 0,
-		},
+	// no valid until leads to default
+	s := TaskSettings{Delay: time.Now().Add(time.Minute)}
+	es := checkSettings(&s)
 
-		{
-			tries:  1001,
-			eTries: 1000,
-		},
-
-		{
-			tries:  15,
-			time:   time.Now().UTC(),
-			eTries: 15,
-		},
+	if s.ValidUntil.IsZero() && es.ValidUntil.IsZero() {
+		t.Fail()
 	}
 
-	for _, c := range tests {
-		s := TaskSettings{MaxTries: c.tries, Delay: c.time}
-		es := checkSettings(&s)
-
-		if c.eTries != es.MaxTries {
-			t.Fatalf("%v != %v", c.eTries, es.MaxTries)
-		}
-
-		if es.Delay.IsZero() {
-			t.Fatal("expected non zero time")
-		}
+	if es.Delay.IsZero() {
+		t.Fatal("expected non zero delay")
 	}
 }
