@@ -113,13 +113,13 @@ func (w *CeleryWorker) reEnqueueTask(task *TaskMessage) {
 	// retryable error enqueue the task again
 	enc, err := task.Encode()
 	if err != nil {
-		log.Errorf("failed to encode Task Message: %v", err)
+		log.Errorf("failed to encode OldTask Message: %v", err)
 		return
 	}
 
 	err = w.broker.SendCeleryMessage(getCeleryMessage(enc))
 	if err != nil {
-		log.Errorf("failed to enqueue Task: %v", err)
+		log.Errorf("failed to enqueue OldTask: %v", err)
 	}
 }
 

@@ -12,7 +12,6 @@ func getBackends(t *testing.T) ([]CeleryBackend, func()) {
 	levelDB, funcC := getLevelDB(t)
 	return []CeleryBackend{
 		NewRedisCeleryBackend("redis://localhost:6379"),
-		NewInMemoryBackend(),
 		NewLevelDBBackend(levelDB),
 	}, funcC
 }

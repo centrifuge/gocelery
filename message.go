@@ -23,26 +23,26 @@ const (
 	maxBackoffTime = time.Minute * 5
 )
 
-// TaskSettings can be passed to the task with specific overrides.
-type TaskSettings struct {
+// Preferences can be passed to the task with specific overrides.
+type Preferences struct {
 	Delay      time.Time `json:"delay"`
 	ValidUntil time.Time `json:"valid_until"`
 }
 
-// DefaultSettings returns the TaskSettings with all the default values and will be used if the Task.Settings is nil.
-func DefaultSettings() *TaskSettings {
-	return &TaskSettings{
+// DefaultSettings returns the Preferences with all the default values and will be used if the OldTask.Settings is nil.
+func DefaultSettings() *Preferences {
+	return &Preferences{
 		ValidUntil: time.Now().Add(MaxValidTime),
 		Delay:      time.Now().UTC(),
 	}
 }
 
-// Task represents a task gocelery receives from the client.
-type Task struct {
+// OldTask represents a task gocelery receives from the client.
+type OldTask struct {
 	Name     string
 	Args     []interface{}
 	Kwargs   map[string]interface{}
-	Settings *TaskSettings // if Settings is nil, we fallback to default values
+	Settings *Preferences // if Settings is nil, we fallback to default values
 }
 
 // CeleryMessage is actual message to be sent to Redis
@@ -146,7 +146,7 @@ type TaskMessage struct {
 	Args     []interface{}          `json:"args"`
 	Kwargs   map[string]interface{} `json:"kwargs"`
 	Tries    uint                   `json:"tries"`
-	Settings *TaskSettings          `json:"settings"`
+	Settings *Preferences           `json:"settings"`
 }
 
 func (tm *TaskMessage) reset() {
@@ -168,7 +168,7 @@ var taskMessagePool = sync.Pool{
 	},
 }
 
-func getTaskMessage(task Task) *TaskMessage {
+func getTaskMessage(task OldTask) *TaskMessage {
 	msg := taskMessagePool.Get().(*TaskMessage)
 	msg.Task = task.Name
 	msg.Args = task.Args

@@ -1,5 +1,7 @@
 module github.com/centrifuge/gocelery
 
+go 1.15
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect

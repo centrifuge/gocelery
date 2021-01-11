@@ -28,7 +28,7 @@ func main() {
 	arg1 := rand.Intn(10)
 	arg2 := rand.Intn(10)
 
-	asyncResult, err := celeryClient.Delay(gocelery.Task{
+	asyncResult, err := celeryClient.Delay(gocelery.OldTask{
 		Name: "worker.add",
 		Args: []interface{}{arg1, arg2},
 	})

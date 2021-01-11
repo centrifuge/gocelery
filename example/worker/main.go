@@ -7,12 +7,12 @@ import (
 	"github.com/centrifuge/gocelery"
 )
 
-// Celery Task using args
+// Celery OldTask using args
 func add(a int, b int) int {
 	return a + b
 }
 
-// AddTask is Celery Task using kwargs
+// AddTask is Celery OldTask using kwargs
 type AddTask struct {
 	a int // x
 	b int // y

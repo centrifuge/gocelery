@@ -60,7 +60,7 @@ func (cc *CeleryClient) StopWorker() {
 }
 
 // Delay gets asynchronous result
-func (cc *CeleryClient) Delay(task Task) (*AsyncResult, error) {
+func (cc *CeleryClient) Delay(task OldTask) (*AsyncResult, error) {
 	if len(task.Args) > 0 && len(task.Kwargs) > 0 {
 		return nil, fmt.Errorf("either args or kwargs need to be set, but not both")
 	}
@@ -70,7 +70,7 @@ func (cc *CeleryClient) Delay(task Task) (*AsyncResult, error) {
 	return cc.delay(celeryTask)
 }
 
-func checkSettings(s *TaskSettings) *TaskSettings {
+func checkSettings(s *Preferences) *Preferences {
 	if s == nil {
 		return DefaultSettings()
 	}
