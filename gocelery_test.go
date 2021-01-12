@@ -92,13 +92,13 @@ package gocelery
 // 	return NewCeleryClient(inMemoryBroker, inMemoryBackend, numWorkers, 1)
 // }
 //
-// func getLevelDBClient(numWorkers int, db *leveldb.DB, prefix string) (*CeleryClient, error) {
-// 	broker := NewLevelDBBroker(db, prefix)
+// func getLevelDBClient(numWorkers int, db *leveldb.DB, queue string) (*CeleryClient, error) {
+// 	broker := NewLevelDBBroker(db, queue)
 // 	backend := NewLevelDBBackend(db)
 // 	return NewCeleryClient(broker, backend, numWorkers, 1)
 // }
 //
-// func getClients(db *leveldb.DB, prefix string) ([]*CeleryClient, error) {
+// func getClients(db *leveldb.DB, queue string) ([]*CeleryClient, error) {
 // 	redisClient, err := getRedisClient()
 // 	if err != nil {
 // 		return nil, err
@@ -109,7 +109,7 @@ package gocelery
 // 		return nil, err
 // 	}
 //
-// 	levelDBClient, err := getLevelDBClient(1, db, prefix)
+// 	levelDBClient, err := getLevelDBClient(1, db, queue)
 // 	if err != nil {
 // 		return nil, err
 // 	}
