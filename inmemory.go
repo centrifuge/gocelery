@@ -2,6 +2,7 @@ package gocelery
 
 import (
 	"container/list"
+	"context"
 	"encoding/hex"
 	"sync"
 )
@@ -61,10 +62,16 @@ func NewInMemoryBroker() Broker {
 		lock:       sync.RWMutex{},
 	}
 }
-func (i *inMemoryBroker) Enqueue(id []byte) {
+
+func (i *inMemoryBroker) Start(context.Context) error {
+	return nil
+}
+
+func (i *inMemoryBroker) Enqueue(id []byte) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	i.queue.PushBack(id)
+	return nil
 }
 
 func (i *inMemoryBroker) Dequeue() ([]byte, error) {
