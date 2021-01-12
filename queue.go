@@ -1,6 +1,7 @@
 package gocelery
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 )
@@ -19,7 +20,8 @@ type Backend interface {
 
 // Broker for queueing messages
 type Broker interface {
-	Enqueue(id []byte)
+	Start(ctx context.Context) error
+	Enqueue(id []byte) error
 	Dequeue() ([]byte, error)
 	Finished(id []byte)
 	Len() int
@@ -32,13 +34,13 @@ type Task struct {
 	Tries  int           `json:"tries"`
 }
 
-// Job represents a single queue job
+// Job represents a single prefix job
 // a job can contain multiple sub-tasks
 type Job struct {
 	ID          []byte                 `json:"id"`
 	Name        string                 `json:"name"`
 	Preferences Preferences            `json:"preferences"`
-	Overrides   map[string]interface{} `json:"overrides"` // a queue of overrides
+	Overrides   map[string]interface{} `json:"overrides"` // a prefix of overrides
 	Tasks       []Task                 `json:"tasks"`     // if this is a TaskChain then sub tasks and their results are here
 	Finished    bool                   `json:"finished"`
 }
