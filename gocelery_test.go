@@ -163,7 +163,7 @@ package gocelery
 //
 // 				debugLog(celeryClient, "submitting tasks")
 // 				kwargAsyncResult, err := celeryClient.Delay(OldTask{
-// 					Name: kwargTaskName,
+// 					Desc: kwargTaskName,
 // 					Kwargs: map[string]interface{}{
 // 						"a": arg1,
 // 						"b": arg2,
@@ -174,7 +174,7 @@ package gocelery
 // 					return
 // 				}
 //
-// 				argAsyncResult, err := celeryClient.Delay(OldTask{Name: argTaskName, Args: []interface{}{arg1, arg2}})
+// 				argAsyncResult, err := celeryClient.Delay(OldTask{Desc: argTaskName, Args: []interface{}{arg1, arg2}})
 // 				if err != nil {
 // 					t.Errorf("failed to submit arg task %s: %v", argTaskName, err)
 // 					return
@@ -246,11 +246,11 @@ package gocelery
 // 	inMemoryClient.Register(kwargTaskName, kwargTask)
 // 	inMemoryClient.StartWorker()
 //
-// 	res1, _ := inMemoryClient.Delay(OldTask{Name: kwargTaskName, Kwargs: map[string]interface{}{
+// 	res1, _ := inMemoryClient.Delay(OldTask{Desc: kwargTaskName, Kwargs: map[string]interface{}{
 // 		"val": generateUUID(),
 // 	}})
 //
-// 	res2, _ := inMemoryClient.Delay(OldTask{Name: kwargTaskName, Kwargs: map[string]interface{}{
+// 	res2, _ := inMemoryClient.Delay(OldTask{Desc: kwargTaskName, Kwargs: map[string]interface{}{
 // 		"val": generateUUID(),
 // 	}})
 //
@@ -274,7 +274,7 @@ package gocelery
 // 	inMemoryClient.Register(kwargTaskName, kwargTask)
 // 	inMemoryClient.StartWorker()
 //
-// 	res1, _ := inMemoryClient.Delay(OldTask{Name: kwargTaskName, Kwargs: map[string]interface{}{
+// 	res1, _ := inMemoryClient.Delay(OldTask{Desc: kwargTaskName, Kwargs: map[string]interface{}{
 // 		"val": generateUUID(),
 // 	}})
 //
@@ -299,7 +299,7 @@ package gocelery
 // 	for _, celeryClient := range celeryClients {
 //
 // 		// send task
-// 		asyncResult, err := celeryClient.Delay(OldTask{Name: "dummy", Args: []interface{}{3, 5}})
+// 		asyncResult, err := celeryClient.Delay(OldTask{Desc: "dummy", Args: []interface{}{3, 5}})
 // 		if err != nil {
 // 			t.Errorf("failed to get async result")
 // 			return
