@@ -9,7 +9,7 @@ package gocelery
 // )
 //
 // func makeCeleryMessage() (*CeleryMessage, error) {
-// 	taskMessage := getTaskMessage(OldTask{Name: "add"})
+// 	taskMessage := getTaskMessage(OldTask{Desc: "add"})
 // 	taskMessage.Args = []interface{}{rand.Intn(10), rand.Intn(10)}
 // 	defer releaseTaskMessage(taskMessage)
 // 	encodedTaskMessage, err := taskMessage.Encode()
