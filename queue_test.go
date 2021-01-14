@@ -3,8 +3,10 @@ package gocelery
 import (
 	"context"
 	"encoding/hex"
+	"math/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -177,4 +179,85 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 	wg.Wait()
 	assert.Equal(t, 0, broker.Len())
 	assert.Len(t, ids, runs)
+}
+
+func newQueue(t *testing.T, workers int) (*Queue, func()) {
+	levelDB, closeDB := getLevelDB(t, randomFilePath(t))
+	backend := NewLevelDBBackend(levelDB)
+	broker := NewLevelDBBroker(levelDB, 1*time.Minute)
+	queue := NewQueue(workers, backend, broker)
+	ctx, cancel := context.WithCancel(context.Background())
+	go queue.Start(ctx)
+	return queue, func() {
+		cancel()
+		closeDB()
+	}
+}
+
+func TestQueue_Register(t *testing.T) {
+	queue, closeF := newQueue(t, 5)
+	defer closeF()
+	assert.True(t, queue.RegisterRunnerFunc("add", add))
+	assert.True(t, queue.RegisterRunner("error", singleRunner{}))
+}
+
+func TestQueue_RunnerFunc_Basic(t *testing.T) {
+	queue, closeF := newQueue(t, 5)
+	defer closeF()
+	assert.True(t, queue.RegisterRunnerFunc("add", add))
+	assert.True(t, queue.RegisterRunnerFunc("error", err))
+
+	// enqueue some jobs
+	tasks := []string{"add", "error"}
+	jobCount := 10
+	type jobResult struct {
+		totalRuns int
+		result    interface{}
+		err       bool
+	}
+	jobs := make(map[string]jobResult)
+	for i := 0; i < jobCount; i++ {
+		task := tasks[rand.Intn(len(tasks))]
+		var args []interface{}
+		var or map[string]interface{}
+		var res interface{}
+		var err bool
+		var validUntil time.Time
+		switch task {
+		case "add":
+			a, b := rand.Intn(1000), rand.Intn(1000)
+			args = []interface{}{a}
+			or = map[string]interface{}{"b": b}
+			res = a + b
+		default:
+			err = true
+			validUntil = time.Now().UTC().Add(5 * time.Second)
+		}
+
+		job := newJob(task, "", task, args, or, validUntil)
+		jobs[job.HexID()] = jobResult{
+			totalRuns: 1,
+			result:    res,
+			err:       err,
+		}
+		assert.NoError(t, queue.Enqueue(job))
+	}
+
+	assert.Len(t, jobs, jobCount)
+	for i := 0; i < jobCount; i++ {
+		j := <-queue.OnFinished()
+		result := jobs[j.HexID()]
+		delete(jobs, j.HexID())
+		assert.True(t, j.LastTask().DidRan())
+		if result.err {
+			assert.False(t, j.IsCompleted())
+			assert.False(t, j.IsValid())
+			assert.NotEmpty(t, j.LastTask().Error)
+			continue
+		}
+		assert.True(t, j.IsCompleted())
+		assert.Equal(t, result.result, j.LastTask().Result)
+	}
+	assert.Len(t, jobs, 0)
+	// TODO(ved): this test runner is not stopping sometimes
 }

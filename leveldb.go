@@ -44,7 +44,7 @@ var (
 // levelDBBroker implements CeleryBroker backed by levelDB
 type levelDBBroker struct {
 	db             *leveldb.DB
-	head           int
+	head           int // TODO(ved): use uint maybe
 	tail           int
 	dispatched     map[string]time.Time
 	requeueTimeout time.Duration
@@ -94,13 +94,14 @@ func (l *levelDBBroker) timeouts() [][]byte {
 	return values
 }
 
-func (l *levelDBBroker) Start(ctx context.Context) error {
+func (l *levelDBBroker) Start(ctx context.Context) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			log.Error(ctx.Err())
+			return
 		case <-tick.C:
 			values := l.timeouts()
 			for _, v := range values {

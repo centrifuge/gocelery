@@ -29,14 +29,13 @@ func dispatchWork(runs int,
 		t := test{
 			work: work{
 				job: &Job{
-					ID:          randomBytes(32),
-					Desc:        runnerName,
-					Runner:      runnerName,
-					Preferences: Preferences{},
-					Overrides:   or,
+					ID:        randomBytes(32),
+					Desc:      runnerName,
+					Runner:    runnerName,
+					Overrides: or,
 					Tasks: []*Task{{
-						Runner: runnerName,
-						Args:   args,
+						RunnerFunc: runnerName,
+						Args:       args,
 					}},
 				},
 				runnerFunc: runnerFunc,
@@ -87,11 +86,12 @@ func TestWorker_RunnerFunc(t *testing.T) {
 			test = testse[hex.EncodeToString(job.ID)]
 		}
 		assert.Equal(t, test.result, job.Tasks[0].Result)
+		assert.True(t, job.Tasks[0].DidRan())
 		if test.err {
-			assert.Error(t, job.Tasks[0].Error)
+			assert.NotEmpty(t, job.Tasks[0].Error)
 			continue
 		}
-		assert.NoError(t, job.Tasks[0].Error)
+		assert.Empty(t, job.Tasks[0].Error)
 	}
 }
 
@@ -163,11 +163,11 @@ func TestWorker_Runner(t *testing.T) {
 		task := job.Tasks[0]
 		assert.True(t, task.DidRan())
 		if tt.err {
-			assert.Error(t, task.Error)
+			assert.NotEmpty(t, task.Error)
 			continue
 		}
 		assert.Equal(t, tt.result, task.Result)
-		assert.NoError(t, task.Error)
+		assert.Empty(t, task.Error)
 	}
 	assert.Len(t, result, 0)
 }

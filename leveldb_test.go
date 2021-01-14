@@ -12,7 +12,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func getRandomTestStoragePath(t *testing.T) string {
+func randomFilePath(t *testing.T) string {
 	r := make([]byte, 32)
 	n, err := cr.Read(r)
 	assert.Nil(t, err)
@@ -22,7 +22,7 @@ func getRandomTestStoragePath(t *testing.T) string {
 
 func getLevelDB(t *testing.T, path string) (*leveldb.DB, func()) {
 	if path == "" {
-		path = getRandomTestStoragePath(t)
+		path = randomFilePath(t)
 	}
 	levelDB, err := leveldb.OpenFile(path, nil)
 	if err != nil {
@@ -35,7 +35,7 @@ func getLevelDB(t *testing.T, path string) (*leveldb.DB, func()) {
 }
 
 func TestNewLevelDBBackend(t *testing.T) {
-	db, cancel := getLevelDB(t, getRandomTestStoragePath(t))
+	db, cancel := getLevelDB(t, randomFilePath(t))
 	defer cancel()
 	backend := NewLevelDBBackend(db)
 	runs := 1000
@@ -43,7 +43,7 @@ func TestNewLevelDBBackend(t *testing.T) {
 }
 
 func TestNewLevelDBBroker(t *testing.T) {
-	db, cancel := getLevelDB(t, getRandomTestStoragePath(t))
+	db, cancel := getLevelDB(t, randomFilePath(t))
 	defer cancel()
 	broker := NewLevelDBBroker(db, 0)
 	runs := 100
@@ -77,7 +77,7 @@ func dequeue(t *testing.T, broker Broker, count int, ack bool) {
 }
 
 func TestLevelDBBroker_State(t *testing.T) {
-	path := getRandomTestStoragePath(t)
+	path := randomFilePath(t)
 	db, cancel := getLevelDB(t, path)
 	broker := NewLevelDBBroker(db, time.Second*2)
 	ctx, c := context.WithCancel(context.Background())

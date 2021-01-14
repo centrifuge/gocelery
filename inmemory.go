@@ -63,9 +63,7 @@ func NewInMemoryBroker() Broker {
 	}
 }
 
-func (i *inMemoryBroker) Start(context.Context) error {
-	return nil
-}
+func (i *inMemoryBroker) Start(context.Context) {}
 
 func (i *inMemoryBroker) Enqueue(id []byte) error {
 	i.lock.Lock()

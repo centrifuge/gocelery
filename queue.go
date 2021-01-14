@@ -1,9 +1,13 @@
 package gocelery
 
 import (
+	"bytes"
 	"context"
-	"crypto/rand"
+	"encoding/gob"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"time"
 )
 
 var (
@@ -11,63 +15,242 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
-// Backend for storing any kind of data
-type Backend interface {
-	Get(key []byte) ([]byte, error)
-	Set(key, value []byte) error
-	Delete(key []byte) error
+func init() {
+	gob.Register(Job{})
 }
 
-// Broker for queueing messages
-type Broker interface {
-	Start(ctx context.Context) error
-	Enqueue(id []byte) error
-	Dequeue() ([]byte, error)
-	Finished(id []byte)
-	Len() int
+type enqueueJob struct {
+	job *Job
+	err chan error
+}
+type Queue struct {
+	enqueue     chan enqueueJob
+	work        chan<- work
+	result      <-chan *Job
+	backend     Backend
+	broker      Broker
+	runners     map[string]Runner
+	runnerFuncs map[string]RunnerFunc
+	workers     []*worker
+	finished    chan *Job
+	register    chan register
 }
 
-// Task represents a single task in a Job
-type Task struct {
-	Runner string        `json:"runner"`
-	Args   []interface{} `json:"args"`
-	Result interface{}   `json:"result"`
-	Error  error         `json:"error"`
-	Tries  int           `json:"tries"`
-}
-
-// DidRan returns if the task was run at least once.
-func (t Task) DidRan() bool {
-	return t.Result != nil || t.Error != nil
-}
-
-// Job represents a single prefix job
-// a job can contain multiple sub-tasks
-type Job struct {
-	ID          []byte                 `json:"id"`
-	Desc        string                 `json:"desc"`
-	Runner      string                 `json:"runner"` // name of the singleRunner
-	Preferences Preferences            `json:"preferences"`
-	Overrides   map[string]interface{} `json:"overrides"` // a prefix of overrides
-	Tasks       []*Task                `json:"tasks"`     // if this is a TaskChain then sub tasks and their results are here
-}
-
-// RunnerFunc is the func that is called to execute the Job
-type RunnerFunc func(args []interface{}, overrides map[string]interface{}) (result interface{}, err error)
-
-// Runner instance to run a stateful job
-type Runner interface {
-	New() Runner
-	RunnerFunc(task string) RunnerFunc
-	Next(task string) (next string, ok bool) // next task after the task
-}
-
-func randomBytes(len int) []byte {
-	r := make([]byte, len)
-	_, err := rand.Read(r)
-	if err != nil {
-		panic(err)
+func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
+	if workerCount == 0 {
+		workerCount = 1
 	}
 
-	return r
+	enqueue := make(chan enqueueJob)
+	work := make(chan work)
+	result := make(chan *Job)
+	var workers []*worker
+	for i := 0; i < workerCount; i++ {
+		workers = append(workers, newWorker(work, result))
+	}
+
+	return &Queue{
+		enqueue:     enqueue,
+		work:        work,
+		result:      result,
+		backend:     backend,
+		broker:      broker,
+		runners:     make(map[string]Runner),
+		runnerFuncs: make(map[string]RunnerFunc),
+		workers:     workers,
+		finished:    make(chan *Job),
+		register:    make(chan register),
+	}
+}
+
+func (q *Queue) OnFinished() <-chan *Job {
+	return q.finished
+}
+
+func (q *Queue) Enqueue(job *Job) error {
+	ej := enqueueJob{
+		job: job,
+		err: make(chan error),
+	}
+	q.enqueue <- ej
+	return <-ej.err
+}
+
+func (q *Queue) Start(ctx context.Context) {
+	go q.broker.Start(ctx)
+
+	for _, w := range q.workers {
+		go w.start(ctx)
+	}
+
+	tick := time.NewTicker(1 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debug("Context closed. Stopping queue...")
+			return
+		case ej := <-q.enqueue:
+			err := q.enqueueJob(ej.job)
+			go func() {
+				ej.err <- err
+			}()
+		case job := <-q.result:
+			err := q.processJob(job)
+			if err != nil {
+				log.Errorf("failed to process job[%s]: %v", job.HexID(), err)
+			}
+		case r := <-q.register:
+			if r.runner == nil {
+				q.runnerFuncs[r.name] = r.runnerFunc
+			} else {
+				q.runners[r.name] = r.runner
+			}
+			go func() {
+				r.resp <- true
+			}()
+		case <-tick.C:
+			q.pushWork()
+		}
+	}
+}
+
+func (q *Queue) processJob(job *Job) (err error) {
+	if job.IsCompleted() {
+		log.Debugf("job[%s] completed successfully...", job.HexID())
+		return q.jobFinished(job)
+	}
+
+	if !job.IsValid() {
+		log.Debugf("job[%s] expired...", job.HexID())
+		return q.jobFinished(job)
+	}
+
+	task := job.LastTask()
+	// task ran and failed, then increase the delay
+	if task.DidRan() && task.Error != "" {
+		task.Delay = time.Now().UTC().Add(getBackOffTime(task.Tries))
+	}
+
+	// re enqueue job
+	return q.enqueueJob(job)
+}
+
+func (q *Queue) jobFinished(job *Job) error {
+	q.broker.Finished(job.ID)
+	go func() {
+		q.finished <- job
+	}()
+	return q.updateJobData(job)
+}
+
+func (q *Queue) pushWork() {
+	id, err := q.broker.Dequeue()
+	if err != nil {
+		return
+	}
+
+	res, err := q.backend.Get(q.fetchKey(id))
+	if err != nil {
+		log.Errorf("failed to get job from backend: %v", err)
+		return
+	}
+
+	dec := gob.NewDecoder(bytes.NewReader(res))
+	job := new(Job)
+	err = dec.Decode(job)
+	if err != nil {
+		log.Errorf("failed to decode job: %v", err)
+		return
+	}
+
+	// job is not valid anymore, ack to broker
+	if !job.IsValid() {
+		log.Debugf("job[%s] expired...", job.HexID())
+		err = q.jobFinished(job)
+		if err != nil {
+			log.Errorf("failed to send job finished: %v", err)
+		}
+		return
+	}
+
+	task := job.LastTask()
+	// if task is not ready to be dispatched
+	// TODO(ved): broker should take care of not sending until ready
+	if !task.IsRunnable() {
+		err = q.enqueueJob(job)
+		if err != nil {
+			log.Errorf("failed to enqueue job[%s]: %v", job.HexID(), err)
+		}
+		return
+	}
+
+	w := work{
+		job:        job,
+		runner:     q.runners[job.Runner],
+		runnerFunc: q.runnerFuncs[task.RunnerFunc],
+	}
+
+	log.Debugf("dispatching job[%s]", job.HexID())
+	go func() {
+		q.work <- w
+	}()
+}
+
+func (q *Queue) updateJobData(job *Job) error {
+	key := q.fetchKey(job.ID)
+	var value bytes.Buffer
+	enc := gob.NewEncoder(&value)
+	err := enc.Encode(job)
+	if err != nil {
+		return fmt.Errorf("failed to gob encode the job: %w", err)
+	}
+
+	return q.backend.Set(key, value.Bytes())
+}
+
+func (q *Queue) enqueueJob(job *Job) error {
+	err := q.updateJobData(job)
+	if err != nil {
+		return err
+	}
+
+	err = q.broker.Enqueue(job.ID)
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("job[%s] enqueued...", job.HexID())
+	return nil
+}
+
+func (q *Queue) fetchKey(id []byte) []byte {
+	return []byte(fmt.Sprintf("queue-jobs-%s", hex.EncodeToString(id)))
+}
+
+type register struct {
+	name       string
+	runner     Runner
+	runnerFunc RunnerFunc
+	resp       chan bool
+}
+
+func (q *Queue) RegisterRunner(name string, runner Runner) bool {
+	r := register{
+		name:   name,
+		runner: runner,
+		resp:   make(chan bool),
+	}
+	q.register <- r
+	return <-r.resp
+}
+
+func (q *Queue) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
+	r := register{
+		name:       name,
+		runnerFunc: runnerFunc,
+		resp:       make(chan bool),
+	}
+	q.register <- r
+	return <-r.resp
 }
