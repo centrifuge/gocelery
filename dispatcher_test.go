@@ -135,7 +135,7 @@ func TestDispatcher_ValidUntil(t *testing.T) {
 	now := time.Now()
 	assert.NoError(t, dispatcher.Dispatch(job))
 	job = <-dispatcher.OnFinished()
-	assert.True(t, time.Since(now) > 10*time.Second)
+	assert.True(t, time.Since(now) >= 10*time.Second)
 	assert.Len(t, job.Tasks, 1)
 	assert.True(t, job.Tasks[0].Tries > 1)
 	assert.NotEmpty(t, job.Tasks[0].Error)
