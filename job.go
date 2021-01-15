@@ -1,28 +1,10 @@
 package gocelery
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"time"
 )
-
-// Storage for storing any kind of data
-type Storage interface {
-	Get(key []byte) ([]byte, error)
-	Set(key, value []byte) error
-	Delete(key []byte) error
-	Iterate(prefix []byte, f func(key, value []byte))
-}
-
-// Broker for queueing messages
-type Broker interface {
-	Start(ctx context.Context)
-	Enqueue(id []byte) error
-	Dequeue() ([]byte, error)
-	Finished(id []byte)
-	Len() int
-}
 
 // Task represents a single task in a Job
 type Task struct {

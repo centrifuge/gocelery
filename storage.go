@@ -2,11 +2,20 @@ package gocelery
 
 import (
 	"bytes"
-	"container/list"
-	"context"
 	"encoding/hex"
 	"sync"
+
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
+
+// Storage for storing any kind of data
+type Storage interface {
+	Get(key []byte) ([]byte, error)
+	Set(key, value []byte) error
+	Delete(key []byte) error
+	Iterate(prefix []byte, f func(key, value []byte))
+}
 
 type inMemoryStorage struct {
 	lock  sync.RWMutex
@@ -67,51 +76,31 @@ func (i *inMemoryStorage) Length() int {
 	return len(i.store)
 }
 
-type inMemoryBroker struct {
-	queue      *list.List
-	dispatched map[string]struct{}
-	lock       sync.RWMutex
+// levelDBStorage implements the Storage based on levelDB
+type levelDBStorage struct {
+	db *leveldb.DB
 }
 
-func NewInMemoryBroker() Broker {
-	return &inMemoryBroker{
-		queue:      list.New(),
-		dispatched: make(map[string]struct{}),
-		lock:       sync.RWMutex{},
+// NewLevelDBStorage returns an levelDB implementation of CeleryBackend
+func NewLevelDBStorage(db *leveldb.DB) Storage {
+	return levelDBStorage{db: db}
+}
+
+func (l levelDBStorage) Get(key []byte) ([]byte, error) {
+	return l.db.Get(key, nil)
+}
+
+func (l levelDBStorage) Set(key, value []byte) error {
+	return l.db.Put(key, value, nil)
+}
+
+func (l levelDBStorage) Delete(key []byte) error {
+	return l.db.Delete(key, nil)
+}
+
+func (l levelDBStorage) Iterate(prefix []byte, f func(key, value []byte)) {
+	itr := l.db.NewIterator(util.BytesPrefix(prefix), nil)
+	for itr.Next() {
+		f(itr.Key(), itr.Value())
 	}
-}
-
-func (i *inMemoryBroker) Start(context.Context) {}
-
-func (i *inMemoryBroker) Enqueue(id []byte) error {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-	i.queue.PushBack(id)
-	return nil
-}
-
-func (i *inMemoryBroker) Dequeue() ([]byte, error) {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-	e := i.queue.Front()
-	if e == nil {
-		return nil, ErrNotFound
-	}
-
-	defer i.queue.Remove(e)
-	v := e.Value.([]byte)
-	i.dispatched[hex.EncodeToString(v)] = struct{}{}
-	return v, nil
-}
-
-func (i *inMemoryBroker) Finished(id []byte) {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-	delete(i.dispatched, hex.EncodeToString(id))
-}
-
-func (i *inMemoryBroker) Len() int {
-	i.lock.RLock()
-	defer i.lock.RUnlock()
-	return i.queue.Len()
 }

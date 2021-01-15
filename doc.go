@@ -1,9 +1,9 @@
 /*
-Package gocelery Task Queue in Go
+Package gocelery Task Runner in Go
 
 Supported brokers/backends
 
-    * LevelDB (broker/storage)
-    * InMemory (broker/storage)
+    * LevelDB (queue/storage)
+    * InMemory (queue/storage)
 */
 package gocelery

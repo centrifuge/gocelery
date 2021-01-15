@@ -3,7 +3,6 @@ package gocelery
 import (
 	"context"
 	"encoding/hex"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -11,45 +10,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testStorage(t *testing.T, runs int, backend Storage) {
-	prefix := []byte("test-prefix")
-	var wg sync.WaitGroup
-	for i := 0; i < runs; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			key := randomBytes(32)
-			value := randomBytes(32)
-			assert.NoError(t, backend.Set(append(prefix, key...), value))
-		}(i)
-	}
-
-	wg.Wait()
-	keys, values := make([][]byte, 0, runs), make([][]byte, 0, runs)
-	backend.Iterate(prefix, func(key, value []byte) {
-		keys = append(keys, append([]byte{}, key...))
-		values = append(values, append([]byte{}, value...))
-	})
-
-	assert.Len(t, keys, runs)
-	assert.Len(t, values, runs)
-	for i, k := range keys {
-		k := k
-		gv, err := backend.Get(k)
-		assert.NoError(t, err)
-		assert.Equal(t, values[i], gv)
-		assert.NoError(t, backend.Delete(k))
-	}
+func TestQueue_(t *testing.T) {
+	db, canc := getLevelDB(t, randomFilePath(t))
+	defer canc()
+	queue := NewQueue(NewLevelDBStorage(db), 0)
+	runs := 100
+	testQueueEnqueueNow(t, runs, queue)
 }
 
-func testBroker(t *testing.T, runs int, broker Broker) {
+func testQueueEnqueueNow(t *testing.T, runs int, queue Queue) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go broker.Start(ctx)
+	go queue.Start(ctx)
 	for i := 0; i < runs; i++ {
 		go func(i int) {
 			id := randomBytes(32)
-			err := broker.Enqueue(id)
+			err := queue.EnqueueNow(id)
 			assert.NoError(t, err)
 		}(i)
 	}
@@ -63,14 +39,14 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 			var gv []byte
 			var err error
 			for {
-				gv, err = broker.Dequeue()
+				gv, err = queue.Dequeue()
 				if err != nil {
 					continue
 				}
 
 				break
 			}
-			broker.Finished(gv)
+			queue.Finished(gv)
 			cn <- gv
 		}()
 	}
@@ -81,139 +57,94 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 	}
 
 	wg.Wait()
-	assert.Equal(t, 0, broker.Len())
+	assert.Equal(t, 0, queue.Len())
 	assert.Len(t, ids, runs)
 }
 
-func newQueue(t *testing.T, workers int) *Queue {
-	levelDB, _ := getLevelDB(t, randomFilePath(t))
-	backend := NewLevelDBStorage(levelDB)
-	broker := NewLevelDBBroker(levelDB, 30*time.Minute)
-	//broker := NewInMemoryBroker()
-	queue := NewQueue(workers, backend, broker)
-	return queue
+func dequeue(t *testing.T, broker Queue, count int, ack bool) [][]byte {
+	// dequeue half the queue and wait for more than 2 seconds without ack
+	var ids [][]byte
+	idChan := make(chan []byte)
+	for i := 0; i < count; i++ {
+		go func(i int) {
+			for {
+				v, err := broker.Dequeue()
+				if err != nil {
+					assert.Error(t, err, ErrNotFound)
+					continue
+				}
+
+				if ack {
+					broker.Finished(v)
+				}
+
+				idChan <- v
+				return
+			}
+		}(i)
+	}
+
+	for i := 0; i < count; i++ {
+		ids = append(ids, <-idChan)
+	}
+	assert.Len(t, ids, count)
+	return ids
 }
 
-func TestQueue_Register(t *testing.T) {
-	queue := newQueue(t, 5)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+func TestQueue_State(t *testing.T) {
+	path := randomFilePath(t)
+	db, _ := getLevelDB(t, path)
+	queue := NewQueue(NewLevelDBStorage(db), 5*time.Second)
+	ctx, c := context.WithCancel(context.Background())
 	go queue.Start(ctx)
-	assert.True(t, queue.RegisterRunnerFunc("add", add))
-	assert.True(t, queue.RegisterRunner("error", singleRunner{}))
-}
 
-type jobResult struct {
-	totalRuns int
-	result    interface{}
-	err       bool
-}
-
-func enqueueTasks(t *testing.T, queue *Queue, tasks []string, jobCount int) map[string]jobResult {
-	assert.True(t, queue.RegisterRunnerFunc("add", add))
-	assert.True(t, queue.RegisterRunnerFunc("error", err))
-	assert.True(t, queue.RegisterRunner("singleRunner", singleRunner{}))
-	assert.True(t, queue.RegisterRunner("multiRunner", multiRunner{}))
-
-	// enqueue some jobs
-	jobs := make(map[string]jobResult)
-	for i := 0; i < jobCount; i++ {
-		task := tasks[rand.Intn(len(tasks))]
-		var args []interface{}
-		var or map[string]interface{}
-		var res interface{}
-		var err bool
-		validUntil := time.Now().UTC().Add(5 * time.Second)
-		runner := ""
-		runnerFunc := task
-		switch task {
-		case "singleRunner", "multiRunner":
-			runner = task
-			runnerFunc = "add"
-			fallthrough
-		case "add":
-			a, b := rand.Intn(1000), rand.Intn(1000)
-			args = []interface{}{a}
-			or = map[string]interface{}{"b": b}
-			res = a + b
-		case "error":
-			err = true
-		}
-
-		job := newJob(task, runner, runnerFunc, args, or, validUntil)
-		jobs[job.HexID()] = jobResult{
-			totalRuns: 1,
-			result:    res,
-			err:       err,
-		}
-		assert.NoError(t, queue.Enqueue(job))
+	runs := 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < runs; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			id := randomBytes(32)
+			err := queue.EnqueueNow(id)
+			assert.NoError(t, err)
+		}(i)
 	}
+	wg.Wait()
+	assert.Equal(t, runs, queue.Len())
 
-	return jobs
-}
+	// dequeue half the queue and wait for more than 10 seconds without ack
+	dequeue(t, queue, runs/2, false)
+	time.Sleep(10 * time.Second)
+	assert.Equal(t, runs, queue.Len())
+	c()
 
-func verifyJobs(t *testing.T, queue *Queue, jobs map[string]jobResult, jobCount int) {
-	assert.Len(t, jobs, jobCount)
-	for i := 0; i < jobCount; i++ {
-		j := <-queue.OnFinished()
-		result := jobs[j.HexID()]
-		delete(jobs, j.HexID())
-		assert.True(t, j.LastTask().DidRan())
-		if result.err {
-			assert.False(t, j.IsCompleted())
-			assert.False(t, j.IsValid())
-			assert.NotEmpty(t, j.LastTask().Error)
-			continue
-		}
-		assert.True(t, j.IsCompleted())
-		assert.Equal(t, result.result, j.LastTask().Result)
-	}
-	assert.Len(t, jobs, 0)
-}
-
-func TestQueue(t *testing.T) {
-	queue := newQueue(t, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	// restart the queue should have all enqueued
+	queue = NewQueue(NewLevelDBStorage(db), 5*time.Second)
+	ctx, c = context.WithCancel(context.Background())
 	go queue.Start(ctx)
-	for name, tasks := range map[string][]string{
-		"RunnerFunc": {"add", "error"},
-		"Runner":     {"singleRunner", "multiRunner"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			jobCount := 10
-			jobs := enqueueTasks(t, queue, tasks, jobCount)
-			verifyJobs(t, queue, jobs, jobCount)
-		})
-	}
-}
+	assert.Equal(t, runs, queue.Len())
 
-func Test_getBackoffTime(t *testing.T) {
-	for i := 1; i < 1000; i++ {
-		d := getBackOffTime(uint(i))
-		if i < 60 && d.Seconds() != (defaultBackOff*time.Duration(i)).Seconds() {
-			t.Fail()
-		}
+	// dequeue half
+	dequeue(t, queue, runs/2, false)
+	assert.True(t, queue.Len() >= runs/2)
+	c()
 
-		if i > 60 && d.Seconds() != maxBackoffTime.Seconds() {
-			t.Fail()
-		}
-	}
-}
-
-func TestQueue_ValidUntil(t *testing.T) {
-	queue := newQueue(t, 4)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	// restart again and all the un ack should be enqueued
+	queue = NewQueue(NewLevelDBStorage(db), 5*time.Second)
+	ctx, c = context.WithCancel(context.Background())
 	go queue.Start(ctx)
-	task := "error"
-	assert.True(t, queue.RegisterRunnerFunc(task, err))
-	job := newJob(task, "", task, nil, nil, time.Now().UTC().Add(10*time.Second))
-	now := time.Now()
-	assert.NoError(t, queue.Enqueue(job))
-	job = <-queue.OnFinished()
-	assert.True(t, time.Since(now) > 10*time.Second)
-	assert.Len(t, job.Tasks, 1)
-	assert.True(t, job.Tasks[0].Tries > 1)
-	assert.NotEmpty(t, job.Tasks[0].Error)
+	time.Sleep(10 * time.Second)
+	assert.Equal(t, runs, queue.Len())
+
+	// dequeue and ack as well
+	dequeue(t, queue, runs/2, true)
+	assert.Equal(t, runs/2, queue.Len())
+	c()
+	db.Close()
+
+	// restart should have only half now
+	db, canc := getLevelDB(t, path)
+	defer canc()
+	queue = NewQueue(NewLevelDBStorage(db), 5*time.Second)
+	assert.Equal(t, runs/2, queue.Len())
 }
