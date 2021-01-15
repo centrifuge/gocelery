@@ -25,7 +25,7 @@ func newWorker(work <-chan work, result chan<- *Job) *worker {
 
 func processWork(work work) *Job {
 	job := work.job
-	task := job.Tasks[len(job.Tasks)-1] // fetch the last task
+	task := job.LastTask() // fetch the last task
 
 	runnerFunc := work.runnerFunc
 	var runner Runner
@@ -60,7 +60,11 @@ func processWork(work work) *Job {
 func (w *worker) start(ctx context.Context) {
 	for {
 		select {
-		case work := <-w.work:
+		case work, ok := <-w.work:
+			if !ok {
+				log.Errorf("stopping worker: %v", "work chan closed")
+				return
+			}
 			job := processWork(work)
 			w.result <- job
 		case <-ctx.Done():

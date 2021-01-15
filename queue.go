@@ -60,6 +60,7 @@ type Queue struct {
 	workers     []*worker
 	finished    chan *Job
 	register    chan register
+	close       func()
 }
 
 func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
@@ -70,6 +71,8 @@ func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
 	enqueue := make(chan enqueueJob)
 	work := make(chan work)
 	result := make(chan *Job)
+	finished := make(chan *Job)
+	register := make(chan register)
 	var workers []*worker
 	for i := 0; i < workerCount; i++ {
 		workers = append(workers, newWorker(work, result))
@@ -84,8 +87,15 @@ func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
 		runners:     make(map[string]Runner),
 		runnerFuncs: make(map[string]RunnerFunc),
 		workers:     workers,
-		finished:    make(chan *Job),
-		register:    make(chan register),
+		finished:    finished,
+		register:    register,
+		close: func() {
+			close(enqueue)
+			close(work)
+			close(result)
+			close(register)
+			close(finished)
+		},
 	}
 }
 
@@ -115,6 +125,7 @@ func (q *Queue) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Errorf("stopping queue: %v", ctx.Err())
+			q.close()
 			return
 		case ej := <-q.enqueue:
 			err := q.enqueueJob(ej.job)
@@ -212,7 +223,7 @@ func (q *Queue) pushWork() {
 
 	// job is not valid anymore, ack to broker
 	if !job.IsValid() {
-		log.Debugf("job[%s] expired...", job.HexID())
+		log.Errorf("job[%s] expired...", job.HexID())
 		err = q.jobFinished(job)
 		if err != nil {
 			log.Errorf("failed to send job finished: %v", err)

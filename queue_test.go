@@ -88,11 +88,13 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 }
 
 func newQueue(t *testing.T, workers int) (*Queue, func()) {
-	levelDB, closeDB := getLevelDB(t, randomFilePath(t))
+	levelDB := getLevelDB(t, randomFilePath(t))
 	backend := NewLevelDBBackend(levelDB)
 	broker := NewLevelDBBroker(levelDB, 1*time.Minute)
 	queue := NewQueue(workers, backend, broker)
-	return queue, closeDB
+	return queue, func() {
+		log.Error(levelDB.Close())
+	}
 }
 
 func TestQueue_Register(t *testing.T) {
@@ -173,9 +175,8 @@ func verifyJobs(t *testing.T, queue *Queue, jobs map[string]jobResult, jobCount 
 	assert.Len(t, jobs, 0)
 }
 
-// TODO(ved): this test doesn't end sometimes
 func TestQueue(t *testing.T) {
-	queue, closeF := newQueue(t, 5)
+	queue, closeF := newQueue(t, 10)
 	t.Cleanup(closeF)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
