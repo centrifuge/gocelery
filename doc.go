@@ -3,7 +3,7 @@ Package gocelery Task Queue in Go
 
 Supported brokers/backends
 
-    * LevelDB (broker/backend)
-    * InMemory (broker/backend)
+    * LevelDB (broker/storage)
+    * InMemory (broker/storage)
 */
 package gocelery

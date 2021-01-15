@@ -1,24 +1,25 @@
 package gocelery
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"encoding/hex"
 	"sync"
 )
 
-type inMemoryBackend struct {
+type inMemoryStorage struct {
 	lock  sync.RWMutex
 	store map[string][]byte
 }
 
-func NewInMemoryBackend() Backend {
-	return &inMemoryBackend{
+func NewInMemoryStorage() Storage {
+	return &inMemoryStorage{
 		store: make(map[string][]byte),
 	}
 }
 
-func (i *inMemoryBackend) Get(id []byte) ([]byte, error) {
+func (i *inMemoryStorage) Get(id []byte) ([]byte, error) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
 	v, ok := i.store[hex.EncodeToString(id)]
@@ -29,21 +30,38 @@ func (i *inMemoryBackend) Get(id []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (i *inMemoryBackend) Set(id, value []byte) error {
+func (i *inMemoryStorage) Set(id, value []byte) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	i.store[hex.EncodeToString(id)] = value
 	return nil
 }
 
-func (i *inMemoryBackend) Delete(id []byte) error {
+func (i *inMemoryStorage) Delete(id []byte) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	delete(i.store, hex.EncodeToString(id))
 	return nil
 }
 
-func (i *inMemoryBackend) Length() int {
+func (i *inMemoryStorage) Iterate(prefix []byte, f func(key, value []byte)) {
+	i.lock.RLock()
+	defer i.lock.RUnlock()
+	for k, v := range i.store {
+		key, err := hex.DecodeString(k)
+		if err != nil {
+			continue
+		}
+
+		if !bytes.HasPrefix(key, prefix) {
+			continue
+		}
+
+		f(key, v)
+	}
+}
+
+func (i *inMemoryStorage) Length() int {
 	i.lock.RLock()
 	defer i.lock.Unlock()
 	return len(i.store)

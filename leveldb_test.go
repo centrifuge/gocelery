@@ -36,12 +36,12 @@ func getLevelDB(t *testing.T, path string) (*leveldb.DB, func()) {
 	}
 }
 
-func TestNewLevelDBBackend(t *testing.T) {
+func TestNewLevelDBStorage(t *testing.T) {
 	db, canc := getLevelDB(t, randomFilePath(t))
 	defer canc()
-	backend := NewLevelDBBackend(db)
+	storage := NewLevelDBStorage(db)
 	runs := 1000
-	testBackend(t, runs, backend)
+	testStorage(t, runs, storage)
 }
 
 func TestNewLevelDBBroker(t *testing.T) {

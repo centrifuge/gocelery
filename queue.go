@@ -53,7 +53,7 @@ type Queue struct {
 	enqueue     chan enqueueJob
 	work        chan<- work
 	result      <-chan *Job
-	backend     Backend
+	storage     Storage
 	broker      Broker
 	runners     map[string]Runner
 	runnerFuncs map[string]RunnerFunc
@@ -63,7 +63,7 @@ type Queue struct {
 	close       func()
 }
 
-func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
+func NewQueue(workerCount int, backend Storage, broker Broker) *Queue {
 	if workerCount == 0 {
 		workerCount = 1
 	}
@@ -82,7 +82,7 @@ func NewQueue(workerCount int, backend Backend, broker Broker) *Queue {
 		enqueue:     enqueue,
 		work:        work,
 		result:      result,
-		backend:     backend,
+		storage:     backend,
 		broker:      broker,
 		runners:     make(map[string]Runner),
 		runnerFuncs: make(map[string]RunnerFunc),
@@ -207,9 +207,9 @@ func (q *Queue) pushWork() {
 		return
 	}
 
-	res, err := q.backend.Get(q.fetchKey(id))
+	res, err := q.storage.Get(q.fetchKey(id))
 	if err != nil {
-		log.Errorf("failed to get job from backend: %v", err)
+		log.Errorf("failed to get job from storage: %v", err)
 		return
 	}
 
@@ -263,7 +263,7 @@ func (q *Queue) updateJobData(job *Job) error {
 		return fmt.Errorf("failed to gob encode the job: %w", err)
 	}
 
-	return q.backend.Set(key, value.Bytes())
+	return q.storage.Set(key, value.Bytes())
 }
 
 func (q *Queue) enqueueJob(job *Job) error {

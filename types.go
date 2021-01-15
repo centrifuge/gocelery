@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// Backend for storing any kind of data
-type Backend interface {
+// Storage for storing any kind of data
+type Storage interface {
 	Get(key []byte) ([]byte, error)
 	Set(key, value []byte) error
 	Delete(key []byte) error
+	Iterate(prefix []byte, f func(key, value []byte))
 }
 
 // Broker for queueing messages

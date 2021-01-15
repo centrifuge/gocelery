@@ -11,37 +11,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testBackend(t *testing.T, runs int, backend Backend) {
-	cn := make(chan struct {
-		k []byte
-		v []byte
-	}, runs)
+func testStorage(t *testing.T, runs int, backend Storage) {
+	prefix := []byte("test-prefix")
+	var wg sync.WaitGroup
 	for i := 0; i < runs; i++ {
+		wg.Add(1)
 		go func(i int) {
+			defer wg.Done()
 			key := randomBytes(32)
 			value := randomBytes(32)
-			assert.NoError(t, backend.Set(key, value))
-			cn <- struct {
-				k []byte
-				v []byte
-			}{k: key, v: value}
+			assert.NoError(t, backend.Set(append(prefix, key...), value))
 		}(i)
 	}
 
-	wg := sync.WaitGroup{}
-	for i := 0; i < runs; i++ {
-		set := <-cn
-		wg.Add(1)
-		go func(k, v []byte) {
-			defer wg.Done()
-			gv, err := backend.Get(k)
-			assert.NoError(t, err)
-			assert.Equal(t, v, gv)
-			assert.NoError(t, backend.Delete(k))
-		}(set.k, set.v)
-	}
-
 	wg.Wait()
+	keys, values := make([][]byte, 0, runs), make([][]byte, 0, runs)
+	backend.Iterate(prefix, func(key, value []byte) {
+		keys = append(keys, append([]byte{}, key...))
+		values = append(values, append([]byte{}, value...))
+	})
+
+	assert.Len(t, keys, runs)
+	assert.Len(t, values, runs)
+	for i, k := range keys {
+		k := k
+		gv, err := backend.Get(k)
+		assert.NoError(t, err)
+		assert.Equal(t, values[i], gv)
+		assert.NoError(t, backend.Delete(k))
+	}
 }
 
 func testBroker(t *testing.T, runs int, broker Broker) {
@@ -89,7 +87,7 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 
 func newQueue(t *testing.T, workers int) *Queue {
 	levelDB, _ := getLevelDB(t, randomFilePath(t))
-	backend := NewLevelDBBackend(levelDB)
+	backend := NewLevelDBStorage(levelDB)
 	broker := NewLevelDBBroker(levelDB, 30*time.Minute)
 	//broker := NewInMemoryBroker()
 	queue := NewQueue(workers, backend, broker)

@@ -14,26 +14,33 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-// levelDBBackend implements the CeleryBackend based on levelDB
-type levelDBBackend struct {
+// levelDBStorage implements the Storage based on levelDB
+type levelDBStorage struct {
 	db *leveldb.DB
 }
 
-// NewLevelDBBackend returns an levelDB implementation of CeleryBackend
-func NewLevelDBBackend(db *leveldb.DB) Backend {
-	return levelDBBackend{db: db}
+// NewLevelDBStorage returns an levelDB implementation of CeleryBackend
+func NewLevelDBStorage(db *leveldb.DB) Storage {
+	return levelDBStorage{db: db}
 }
 
-func (l levelDBBackend) Get(key []byte) ([]byte, error) {
+func (l levelDBStorage) Get(key []byte) ([]byte, error) {
 	return l.db.Get(key, nil)
 }
 
-func (l levelDBBackend) Set(key, value []byte) error {
+func (l levelDBStorage) Set(key, value []byte) error {
 	return l.db.Put(key, value, nil)
 }
 
-func (l levelDBBackend) Delete(key []byte) error {
+func (l levelDBStorage) Delete(key []byte) error {
 	return l.db.Delete(key, nil)
+}
+
+func (l levelDBStorage) Iterate(prefix []byte, f func(key, value []byte)) {
+	itr := l.db.NewIterator(util.BytesPrefix(prefix), nil)
+	for itr.Next() {
+		f(itr.Key(), itr.Value())
+	}
 }
 
 var (

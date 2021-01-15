@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInMemoryBackend(t *testing.T) {
+func TestInMemoryStaorage(t *testing.T) {
 	runs := 1000
-	backend := NewInMemoryBackend()
-	testBackend(t, runs, backend)
-	assert.Len(t, backend.(*inMemoryBackend).store, 0)
+	storage := NewInMemoryStorage()
+	testStorage(t, runs, storage)
+	assert.Len(t, storage.(*inMemoryStorage).store, 0)
 }
 
 func TestInMemoryBroker(t *testing.T) {
