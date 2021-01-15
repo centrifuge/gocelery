@@ -90,7 +90,8 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 func newQueue(t *testing.T, workers int) (*Queue, func()) {
 	levelDB := getLevelDB(t, randomFilePath(t))
 	backend := NewLevelDBBackend(levelDB)
-	broker := NewLevelDBBroker(levelDB, 1*time.Minute)
+	// broker := NewLevelDBBroker(levelDB, 1*time.Minute)
+	broker := NewInMemoryBroker()
 	queue := NewQueue(workers, backend, broker)
 	return queue, func() {
 		log.Error(levelDB.Close())
