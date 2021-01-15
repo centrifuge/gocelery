@@ -11,100 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// func getBackends(t *testing.T) ([]CeleryBackend, func()) {
-// 	levelDB, funcC := getLevelDB(t)
-// 	return []CeleryBackend{
-// 		NewRedisCeleryBackend("redis://localhost:6379"),
-// 		NewLevelDBBackend(levelDB),
-// 	}, funcC
-// }
-//
-// // TestGetResult is Redis specific test to get result from backend
-// func TestGetResult(t *testing.T) {
-// 	backend := NewRedisCeleryBackend("redis://localhost:6379")
-// 	taskID := generateUUID()
-//
-// 	// value must be float64 for testing due to json limitation
-// 	value := reflect.ValueOf(rand.Float64())
-// 	resultMessage := getReflectionResultMessage(&value)
-// 	defer releaseResultMessage(resultMessage)
-// 	messageBytes, err := json.Marshal(resultMessage)
-// 	if err != nil {
-// 		t.Errorf("error marshalling result message: %v", err)
-// 	}
-// 	conn := backend.(*redisCeleryBackend).Get()
-// 	defer conn.Close()
-// 	_, err = conn.Do("SETEX", fmt.Sprintf("celery-task-meta-%s", taskID), 86400, messageBytes)
-// 	if err != nil {
-// 		t.Errorf("error setting result message to celery: %v", err)
-// 	}
-// 	// get result
-// 	res, err := backend.GetResult(taskID)
-// 	if err != nil {
-// 		t.Errorf("error getting result from backend: %v", err)
-// 	}
-// 	if !reflect.DeepEqual(res, resultMessage) {
-// 		t.Errorf("result message received %v is different from original %v", res, resultMessage)
-// 	}
-// }
-//
-// // TestSetResult is Redis specific test to set result to backend
-// func TestSetResult(t *testing.T) {
-// 	backend := NewRedisCeleryBackend("redis://localhost:6379")
-// 	taskID := generateUUID()
-// 	value := reflect.ValueOf(rand.Float64())
-// 	result := getReflectionResultMessage(&value)
-// 	releaseResultMessage(result)
-// 	// set result
-// 	err := backend.SetResult(taskID, result)
-// 	if err != nil {
-// 		t.Errorf("error setting result to backend: %v", err)
-// 	}
-// 	conn := backend.(*redisCeleryBackend).Get()
-// 	defer conn.Close()
-// 	val, err := conn.Do("GET", fmt.Sprintf("celery-task-meta-%s", taskID))
-// 	if err != nil {
-// 		t.Errorf("error getting data from redis: %v", err)
-// 	}
-// 	if val == nil {
-// 		t.Errorf("result not available from redis")
-// 	}
-// 	var res ResultMessage
-// 	err = json.Unmarshal(val.([]byte), &res)
-// 	if err != nil {
-// 		t.Errorf("error parsing json result")
-// 	}
-// 	if !reflect.DeepEqual(&res, result) {
-// 		t.Errorf("result message received %v is different from original %v", &res, result)
-// 	}
-// }
-//
-// // TestSetGetResult tests set/get result feature for all backends
-// func TestSetGetResult(t *testing.T) {
-// 	backends, funcC := getBackends(t)
-// 	defer funcC()
-// 	for _, backend := range backends {
-// 		taskID := generateUUID()
-// 		value := reflect.ValueOf(rand.Float64())
-// 		resultMessage := getReflectionResultMessage(&value)
-// 		// set result
-// 		err := backend.SetResult(taskID, resultMessage)
-// 		if err != nil {
-// 			t.Errorf("error setting result to backend: %v", err)
-// 		}
-// 		// get result
-// 		res, err := backend.GetResult(taskID)
-// 		if err != nil {
-// 			t.Errorf("error getting result from backend: %v", err)
-// 		}
-// 		if !reflect.DeepEqual(res, resultMessage) {
-// 			t.Errorf("result message received %v is different from original %v", res, resultMessage)
-// 		}
-//
-// 		releaseResultMessage(resultMessage)
-// 	}
-// }
-
 func testBackend(t *testing.T, runs int, backend Backend) {
 	cn := make(chan struct {
 		k []byte
@@ -186,35 +92,32 @@ func newQueue(t *testing.T, workers int) (*Queue, func()) {
 	backend := NewLevelDBBackend(levelDB)
 	broker := NewLevelDBBroker(levelDB, 1*time.Minute)
 	queue := NewQueue(workers, backend, broker)
-	ctx, cancel := context.WithCancel(context.Background())
-	go queue.Start(ctx)
-	return queue, func() {
-		cancel()
-		closeDB()
-	}
+	return queue, closeDB
 }
 
 func TestQueue_Register(t *testing.T) {
 	queue, closeF := newQueue(t, 5)
-	defer closeF()
+	t.Cleanup(closeF)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go queue.Start(ctx)
 	assert.True(t, queue.RegisterRunnerFunc("add", add))
 	assert.True(t, queue.RegisterRunner("error", singleRunner{}))
 }
 
-func TestQueue_RunnerFunc_Basic(t *testing.T) {
-	queue, closeF := newQueue(t, 5)
-	defer closeF()
+type jobResult struct {
+	totalRuns int
+	result    interface{}
+	err       bool
+}
+
+func enqueueTasks(t *testing.T, queue *Queue, tasks []string, jobCount int) map[string]jobResult {
 	assert.True(t, queue.RegisterRunnerFunc("add", add))
 	assert.True(t, queue.RegisterRunnerFunc("error", err))
+	assert.True(t, queue.RegisterRunner("singleRunner", singleRunner{}))
+	assert.True(t, queue.RegisterRunner("multiRunner", multiRunner{}))
 
 	// enqueue some jobs
-	tasks := []string{"add", "error"}
-	jobCount := 10
-	type jobResult struct {
-		totalRuns int
-		result    interface{}
-		err       bool
-	}
 	jobs := make(map[string]jobResult)
 	for i := 0; i < jobCount; i++ {
 		task := tasks[rand.Intn(len(tasks))]
@@ -222,19 +125,24 @@ func TestQueue_RunnerFunc_Basic(t *testing.T) {
 		var or map[string]interface{}
 		var res interface{}
 		var err bool
-		var validUntil time.Time
+		validUntil := time.Now().UTC().Add(5 * time.Second)
+		runner := ""
+		runnerFunc := task
 		switch task {
+		case "singleRunner", "multiRunner":
+			runner = task
+			runnerFunc = "add"
+			fallthrough
 		case "add":
 			a, b := rand.Intn(1000), rand.Intn(1000)
 			args = []interface{}{a}
 			or = map[string]interface{}{"b": b}
 			res = a + b
-		default:
+		case "error":
 			err = true
-			validUntil = time.Now().UTC().Add(5 * time.Second)
 		}
 
-		job := newJob(task, "", task, args, or, validUntil)
+		job := newJob(task, runner, runnerFunc, args, or, validUntil)
 		jobs[job.HexID()] = jobResult{
 			totalRuns: 1,
 			result:    res,
@@ -243,6 +151,10 @@ func TestQueue_RunnerFunc_Basic(t *testing.T) {
 		assert.NoError(t, queue.Enqueue(job))
 	}
 
+	return jobs
+}
+
+func verifyJobs(t *testing.T, queue *Queue, jobs map[string]jobResult, jobCount int) {
 	assert.Len(t, jobs, jobCount)
 	for i := 0; i < jobCount; i++ {
 		j := <-queue.OnFinished()
@@ -259,5 +171,54 @@ func TestQueue_RunnerFunc_Basic(t *testing.T) {
 		assert.Equal(t, result.result, j.LastTask().Result)
 	}
 	assert.Len(t, jobs, 0)
-	// TODO(ved): this test runner is not stopping sometimes
+}
+
+// TODO(ved): this test doesn't end sometimes
+func TestQueue(t *testing.T) {
+	queue, closeF := newQueue(t, 5)
+	t.Cleanup(closeF)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go queue.Start(ctx)
+	for name, tasks := range map[string][]string{
+		"RunnerFunc": {"add", "error"},
+		"Runner":     {"singleRunner", "multiRunner"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			jobCount := 10
+			jobs := enqueueTasks(t, queue, tasks, jobCount)
+			verifyJobs(t, queue, jobs, jobCount)
+		})
+	}
+}
+
+func Test_getBackoffTime(t *testing.T) {
+	for i := 1; i < 1000; i++ {
+		d := getBackOffTime(uint(i))
+		if i < 60 && d.Seconds() != (defaultBackOff*time.Duration(i)).Seconds() {
+			t.Fail()
+		}
+
+		if i > 60 && d.Seconds() != maxBackoffTime.Seconds() {
+			t.Fail()
+		}
+	}
+}
+
+func TestQueue_ValidUntil(t *testing.T) {
+	queue, cancel := newQueue(t, 4)
+	t.Cleanup(cancel)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go queue.Start(ctx)
+	task := "error"
+	assert.True(t, queue.RegisterRunnerFunc(task, err))
+	job := newJob(task, "", task, nil, nil, time.Now().UTC().Add(10*time.Second))
+	now := time.Now()
+	assert.NoError(t, queue.Enqueue(job))
+	job = <-queue.OnFinished()
+	assert.True(t, time.Since(now) > 10*time.Second)
+	assert.Len(t, job.Tasks, 1)
+	assert.True(t, job.Tasks[0].Tries > 1)
+	assert.NotEmpty(t, job.Tasks[0].Error)
 }

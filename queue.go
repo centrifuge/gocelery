@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	logging "github.com/ipfs/go-log"
 )
 
 var (
@@ -15,14 +17,38 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+const (
+	// MaxValidTime signifies how long is valid by default
+	// Max set to 12 hrs
+	MaxValidTime = 12 * time.Hour
+
+	// defaultBackOff with current tries for back off
+	defaultBackOff = time.Second * 5
+
+	// maxBackOffTime to backoff at a delay
+	maxBackoffTime = time.Minute * 5
+)
+
 func init() {
 	gob.Register(Job{})
+}
+
+var log = logging.Logger("gocelery")
+
+func getBackOffTime(tries uint) time.Duration {
+	d := defaultBackOff * time.Duration(tries)
+	if d.Minutes() > maxBackoffTime.Minutes() {
+		return maxBackoffTime
+	}
+
+	return d
 }
 
 type enqueueJob struct {
 	job *Job
 	err chan error
 }
+
 type Queue struct {
 	enqueue     chan enqueueJob
 	work        chan<- work
@@ -88,7 +114,7 @@ func (q *Queue) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debug("Context closed. Stopping queue...")
+			log.Errorf("stopping queue: %v", ctx.Err())
 			return
 		case ej := <-q.enqueue:
 			err := q.enqueueJob(ej.job)
@@ -113,6 +139,26 @@ func (q *Queue) Start(ctx context.Context) {
 			q.pushWork()
 		}
 	}
+}
+
+func (q *Queue) RegisterRunner(name string, runner Runner) bool {
+	r := register{
+		name:   name,
+		runner: runner,
+		resp:   make(chan bool),
+	}
+	q.register <- r
+	return <-r.resp
+}
+
+func (q *Queue) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
+	r := register{
+		name:       name,
+		runnerFunc: runnerFunc,
+		resp:       make(chan bool),
+	}
+	q.register <- r
+	return <-r.resp
 }
 
 func (q *Queue) processJob(job *Job) (err error) {
@@ -233,24 +279,4 @@ type register struct {
 	runner     Runner
 	runnerFunc RunnerFunc
 	resp       chan bool
-}
-
-func (q *Queue) RegisterRunner(name string, runner Runner) bool {
-	r := register{
-		name:   name,
-		runner: runner,
-		resp:   make(chan bool),
-	}
-	q.register <- r
-	return <-r.resp
-}
-
-func (q *Queue) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
-	r := register{
-		name:       name,
-		runnerFunc: runnerFunc,
-		resp:       make(chan bool),
-	}
-	q.register <- r
-	return <-r.resp
 }

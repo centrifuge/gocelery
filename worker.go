@@ -64,6 +64,7 @@ func (w *worker) start(ctx context.Context) {
 			job := processWork(work)
 			w.result <- job
 		case <-ctx.Done():
+			log.Errorf("stopping worker: %v", ctx.Err())
 			return
 		}
 	}

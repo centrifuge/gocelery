@@ -100,7 +100,7 @@ func (l *levelDBBroker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Error(ctx.Err())
+			log.Errorf("stopping broker: %v", ctx.Err())
 			return
 		case <-tick.C:
 			values := l.timeouts()
