@@ -4,6 +4,7 @@ import (
 	"context"
 	cr "crypto/rand"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func randomFilePath(t *testing.T) string {
 	return fmt.Sprintf("%s_%x", "/tmp/data.leveldb_TESTING", r)
 }
 
-func getLevelDB(t *testing.T, path string) *leveldb.DB {
+func getLevelDB(t *testing.T, path string) (*leveldb.DB, func()) {
 	if path == "" {
 		path = randomFilePath(t)
 	}
@@ -29,20 +30,23 @@ func getLevelDB(t *testing.T, path string) *leveldb.DB {
 		t.Fatalf("failed to open levelDb: %v", err)
 	}
 
-	return levelDB
+	return levelDB, func() {
+		levelDB.Close()
+		os.Remove(path)
+	}
 }
 
 func TestNewLevelDBBackend(t *testing.T) {
-	db := getLevelDB(t, randomFilePath(t))
-	defer db.Close()
+	db, canc := getLevelDB(t, randomFilePath(t))
+	defer canc()
 	backend := NewLevelDBBackend(db)
 	runs := 1000
 	testBackend(t, runs, backend)
 }
 
 func TestNewLevelDBBroker(t *testing.T) {
-	db := getLevelDB(t, randomFilePath(t))
-	defer db.Close()
+	db, canc := getLevelDB(t, randomFilePath(t))
+	defer canc()
 	broker := NewLevelDBBroker(db, 0)
 	runs := 100
 	testBroker(t, runs, broker)
@@ -76,7 +80,7 @@ func dequeue(t *testing.T, broker Broker, count int, ack bool) {
 
 func TestLevelDBBroker_State(t *testing.T) {
 	path := randomFilePath(t)
-	db := getLevelDB(t, path)
+	db, canc := getLevelDB(t, path)
 	broker := NewLevelDBBroker(db, time.Second*2)
 	ctx, c := context.WithCancel(context.Background())
 	go broker.Start(ctx)
@@ -119,8 +123,8 @@ func TestLevelDBBroker_State(t *testing.T) {
 
 	// restart should have only half now
 	db.Close()
-	db = getLevelDB(t, path)
-	defer db.Close()
+	db, canc = getLevelDB(t, path)
+	defer canc()
 	broker = NewLevelDBBroker(db, time.Second*2)
 	assert.Equal(t, runs/2, broker.Len())
 }
