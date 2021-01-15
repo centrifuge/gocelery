@@ -87,20 +87,17 @@ func testBroker(t *testing.T, runs int, broker Broker) {
 	assert.Len(t, ids, runs)
 }
 
-func newQueue(t *testing.T, workers int) (*Queue, func()) {
-	levelDB, canc := getLevelDB(t, randomFilePath(t))
+func newQueue(t *testing.T, workers int) *Queue {
+	levelDB, _ := getLevelDB(t, randomFilePath(t))
 	backend := NewLevelDBBackend(levelDB)
-	// broker := NewLevelDBBroker(levelDB, 1*time.Minute)
-	broker := NewInMemoryBroker()
+	broker := NewLevelDBBroker(levelDB, 30*time.Minute)
+	//broker := NewInMemoryBroker()
 	queue := NewQueue(workers, backend, broker)
-	return queue, func() {
-		canc()
-	}
+	return queue
 }
 
 func TestQueue_Register(t *testing.T) {
-	queue, closeF := newQueue(t, 5)
-	t.Cleanup(closeF)
+	queue := newQueue(t, 5)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go queue.Start(ctx)
@@ -177,8 +174,7 @@ func verifyJobs(t *testing.T, queue *Queue, jobs map[string]jobResult, jobCount 
 }
 
 func TestQueue(t *testing.T) {
-	queue, closeF := newQueue(t, 10)
-	t.Cleanup(closeF)
+	queue := newQueue(t, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go queue.Start(ctx)
@@ -208,8 +204,7 @@ func Test_getBackoffTime(t *testing.T) {
 }
 
 func TestQueue_ValidUntil(t *testing.T) {
-	queue, cancel := newQueue(t, 4)
-	t.Cleanup(cancel)
+	queue := newQueue(t, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go queue.Start(ctx)

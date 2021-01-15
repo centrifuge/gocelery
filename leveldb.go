@@ -44,10 +44,10 @@ var (
 // levelDBBroker implements CeleryBroker backed by levelDB
 type levelDBBroker struct {
 	db             *leveldb.DB
-	head           int // TODO(ved): use uint maybe
-	tail           int
 	requeueTimeout time.Duration
 
+	head int
+	tail int
 	lock sync.RWMutex // protect head and tail
 }
 
@@ -122,6 +122,16 @@ func (l *levelDBBroker) Enqueue(id []byte) error {
 	return nil
 }
 
+func (l *levelDBBroker) EnqueueAfter(id []byte, t time.Time) error {
+	d, err := t.UTC().MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	ackKey := fmt.Sprintf("%s%s", ackPrefix, hex.EncodeToString(id))
+	return l.db.Put([]byte(ackKey), d, nil)
+}
+
 func (l *levelDBBroker) Dequeue() ([]byte, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -192,7 +202,6 @@ func (l *levelDBBroker) timeouts() [][]byte {
 			continue
 		}
 
-		//fmt.Println(hex.EncodeToString(id), t.Format(time.RFC3339Nano))
 		if time.Now().UTC().Before(t.UTC()) {
 			continue
 		}
