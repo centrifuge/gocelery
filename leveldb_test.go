@@ -52,11 +52,11 @@ func TestNewLevelDBBroker(t *testing.T) {
 	testBroker(t, runs, broker)
 }
 
-func dequeue(t *testing.T, broker Broker, count int, ack bool) {
+func dequeue(t *testing.T, broker Broker, count int, ack bool) [][]byte {
 	// dequeue half the queue and wait for more than 2 seconds without ack
-	wg := sync.WaitGroup{}
+	var ids [][]byte
+	idChan := make(chan []byte)
 	for i := 0; i < count; i++ {
-		wg.Add(1)
 		go func(i int) {
 			for {
 				v, err := broker.Dequeue()
@@ -69,19 +69,23 @@ func dequeue(t *testing.T, broker Broker, count int, ack bool) {
 					broker.Finished(v)
 				}
 
-				wg.Done()
-				break
+				idChan <- v
+				return
 			}
 		}(i)
 	}
 
-	wg.Wait()
+	for i := 0; i < count; i++ {
+		ids = append(ids, <-idChan)
+	}
+	assert.Len(t, ids, count)
+	return ids
 }
 
 func TestLevelDBBroker_State(t *testing.T) {
 	path := randomFilePath(t)
-	db, canc := getLevelDB(t, path)
-	broker := NewLevelDBBroker(db, time.Second*2)
+	db, _ := getLevelDB(t, path)
+	broker := NewLevelDBBroker(db, 5*time.Second)
 	ctx, c := context.WithCancel(context.Background())
 	go broker.Start(ctx)
 
@@ -99,32 +103,39 @@ func TestLevelDBBroker_State(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, runs, broker.Len())
 
-	// dequeue half the queue and wait for more than 2 seconds without ack
+	// dequeue half the queue and wait for more than 10 seconds without ack
 	dequeue(t, broker, runs/2, false)
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 	assert.Equal(t, runs, broker.Len())
 	c()
 
 	// restart the queue should have all enqueued
-	broker = NewLevelDBBroker(db, time.Second*2)
+	broker = NewLevelDBBroker(db, 5*time.Second)
+	ctx, c = context.WithCancel(context.Background())
+	go broker.Start(ctx)
 	assert.Equal(t, runs, broker.Len())
 
 	// dequeue half
 	dequeue(t, broker, runs/2, false)
-	assert.Equal(t, runs/2, broker.Len())
+	assert.True(t, broker.Len() >= runs/2)
+	c()
 
 	// restart again and all the un ack should be enqueued
-	broker = NewLevelDBBroker(db, time.Second*2)
+	broker = NewLevelDBBroker(db, 5*time.Second)
+	ctx, c = context.WithCancel(context.Background())
+	go broker.Start(ctx)
+	time.Sleep(10 * time.Second)
 	assert.Equal(t, runs, broker.Len())
 
 	// dequeue and ack as well
 	dequeue(t, broker, runs/2, true)
 	assert.Equal(t, runs/2, broker.Len())
+	c()
+	db.Close()
 
 	// restart should have only half now
-	db.Close()
-	db, canc = getLevelDB(t, path)
+	db, canc := getLevelDB(t, path)
 	defer canc()
-	broker = NewLevelDBBroker(db, time.Second*2)
+	broker = NewLevelDBBroker(db, 5*time.Second)
 	assert.Equal(t, runs/2, broker.Len())
 }
