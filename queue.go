@@ -20,6 +20,7 @@ var (
 type Queue interface {
 	Start(ctx context.Context)
 	EnqueueNow(id []byte) error
+	EnqueueAfter(id []byte, t time.Time) error
 	Dequeue() ([]byte, error)
 	Finished(id []byte)
 	Len() int

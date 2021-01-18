@@ -202,56 +202,57 @@ func (q *Dispatcher) jobFinished(job *Job) error {
 }
 
 func (q *Dispatcher) pushWork() {
-	id, err := q.queue.Dequeue()
-	if err != nil {
-		return
-	}
-
-	res, err := q.storage.Get(q.fetchKey(id))
-	if err != nil {
-		log.Errorf("failed to get job from storage: %v", err)
-		return
-	}
-
-	dec := gob.NewDecoder(bytes.NewReader(res))
-	job := new(Job)
-	err = dec.Decode(job)
-	if err != nil {
-		log.Errorf("failed to decode job: %v", err)
-		return
-	}
-
-	// job is not valid anymore, ack to queue
-	if !job.IsValid() {
-		log.Errorf("job[%s] expired...", job.HexID())
-		err = q.jobFinished(job)
-		if err != nil {
-			log.Errorf("failed to send job finished: %v", err)
+	var count int
+	defer func() {
+		if count > 0 {
+			log.Debugf("dispatched %d jobs", count)
 		}
-		return
-	}
-
-	task := job.LastTask()
-	// if task is not ready to be dispatched
-	// TODO(ved): queue should take care of not sending until ready
-	if !task.IsRunnable() {
-		err = q.enqueueJob(job)
-		if err != nil {
-			log.Errorf("failed to enqueue job[%s]: %v", job.HexID(), err)
-		}
-		return
-	}
-
-	w := work{
-		job:        job,
-		runner:     q.runners[job.Runner],
-		runnerFunc: q.runnerFuncs[task.RunnerFunc],
-	}
-
-	log.Debugf("dispatching job[%s]", job.HexID())
-	go func() {
-		q.work <- w
 	}()
+
+	max := len(q.workers) - len(q.work)
+	for count < max {
+		id, err := q.queue.Dequeue()
+		if err != nil {
+			return
+		}
+
+		res, err := q.storage.Get(q.fetchKey(id))
+		if err != nil {
+			log.Errorf("failed to get job from storage: %v", err)
+			continue
+		}
+
+		dec := gob.NewDecoder(bytes.NewReader(res))
+		job := new(Job)
+		err = dec.Decode(job)
+		if err != nil {
+			log.Errorf("failed to decode job: %v", err)
+			continue
+		}
+
+		// job is not valid anymore, ack to queue
+		if !job.IsValid() {
+			log.Errorf("job[%s] expired...", job.HexID())
+			err = q.jobFinished(job)
+			if err != nil {
+				log.Errorf("failed to send job finished: %v", err)
+			}
+			continue
+		}
+
+		task := job.LastTask()
+		w := work{
+			job:        job,
+			runner:     q.runners[job.Runner],
+			runnerFunc: q.runnerFuncs[task.RunnerFunc],
+		}
+
+		count++
+		log.Debugf("dispatching job[%s]", job.HexID())
+		go func() {
+			q.work <- w
+		}()
+	}
 }
 
 func (q *Dispatcher) updateJobData(job *Job) error {
@@ -272,7 +273,12 @@ func (q *Dispatcher) enqueueJob(job *Job) error {
 		return err
 	}
 
-	err = q.queue.EnqueueNow(job.ID)
+	delay := job.LastTask().Delay
+	if delay.IsZero() {
+		delay = time.Now().UTC()
+	}
+
+	err = q.queue.EnqueueAfter(job.ID, delay)
 	if err != nil {
 		return err
 	}
