@@ -22,7 +22,7 @@ jobs:
           go test -race -covermode atomic -coverprofile=covprofile ./...
       - name: Run Benchmarks
         run: |
-          go test -run=XXX -bench=.
+          go test -run=XXX -bench=. -benchtime=5s -count 1
       - name: Install goveralls
         env:
           GO111MODULE: off

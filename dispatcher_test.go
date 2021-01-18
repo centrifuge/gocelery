@@ -7,8 +7,13 @@ import (
 	"testing"
 	"time"
 
+	logging "github.com/ipfs/go-log"
 	"github.com/stretchr/testify/assert"
 )
+
+func init() {
+	logging.SetAllLoggers(logging.LevelFatal)
+}
 
 func newDispatcher(t *testing.T, workers int) *Dispatcher {
 	levelDB, _ := getLevelDB(t, randomFilePath(t))
@@ -188,13 +193,10 @@ func benchmarkDispatcher(b *testing.B, inmemory bool) {
 	b.Cleanup(cancel)
 	go dispatcher.Start(ctx)
 	for _, v := range variants {
-		for name, tasks := range map[string][]string{
-			"RunnerFunc": {"add", "error"},
-			"Runner":     {"singleRunner", "multiRunner"},
-		} {
-			b.Run(fmt.Sprintf("%s_%s", v.name, name), func(b *testing.B) {
+		for _, tasks := range []string{"add", "error", "singleRunner", "multiRunner"} {
+			b.Run(fmt.Sprintf("%s_%s", v.name, tasks), func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					jobs := enqueueTasks(new(testing.T), dispatcher, tasks, v.jobCount)
+					jobs := enqueueTasks(new(testing.T), dispatcher, []string{tasks}, v.jobCount)
 					verifyJobs(new(testing.T), dispatcher, jobs, v.jobCount)
 				}
 			})

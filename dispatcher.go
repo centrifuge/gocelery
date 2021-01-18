@@ -40,7 +40,6 @@ func getBackOffTime(tries uint) time.Duration {
 	if d.Minutes() > maxBackoffTime.Minutes() {
 		return maxBackoffTime
 	}
-
 	return d
 }
 
