@@ -203,7 +203,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Errorf("stopping queue: %v", ctx.Err())
+			log.Debugf("stopping queue: %v", ctx.Err())
 			return
 		case sub := <-d.subscribe:
 			subs := d.subscribers[hex.EncodeToString(sub.id)]
@@ -346,7 +346,7 @@ func (d *Dispatcher) pushWork() {
 
 		// job is not valid anymore, ack to queue
 		if !job.IsValid() {
-			log.Errorf("job[%s] expired...", job.HexID())
+			log.Debugf("job[%s] expired...", job.HexID())
 			err = d.jobFinished(job)
 			if err != nil {
 				log.Errorf("failed to send job finished: %v", err)

@@ -17,7 +17,8 @@ A dispatcher uses Storage and Queue to run tasks asynchronously.
 
 ## Job
 A Job defines a single job. it can encompasses multiple tasks and has a validity time. if fails, backoffs exponentially
-until either successful or expired
+until either successful or expired. 
+Dispatcher uses gob encoder to encode the job params like arguments, overrides etc... Register your custom types with gob before dispatching a job.
 
 ## Examples
 Checkout `examples` package for more examples

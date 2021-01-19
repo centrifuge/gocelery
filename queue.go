@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-var (
-	queuePrefix    = "queue-queue-"
-	queueAckPrefix = "queue-ack-"
-)
-
 // Queue is a message queue
 type Queue interface {
 	Start(ctx context.Context)
@@ -30,6 +25,8 @@ type Queue interface {
 type queue struct {
 	storage        Storage
 	requeueTimeout time.Duration
+	queuePrefix    string
+	queueAckPrefix string
 
 	head int
 	tail int
@@ -43,11 +40,14 @@ func NewQueue(storage Storage, reQueueTimeout time.Duration) Queue {
 		reQueueTimeout = time.Minute * 30
 	}
 
+	name := "gocelery"
 	q := &queue{
 		storage:        storage,
 		head:           0,
 		tail:           0,
 		requeueTimeout: reQueueTimeout,
+		queuePrefix:    fmt.Sprintf("%s-queue-", name),
+		queueAckPrefix: fmt.Sprintf("%s-ack-", name),
 	}
 
 	// restore the old state from the DB
@@ -61,7 +61,7 @@ func (q *queue) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Errorf("stopping queue: %v", ctx.Err())
+			log.Debugf("stopping queue: %v", ctx.Err())
 			return
 		case <-tick.C:
 			ids := q.timeouts()
@@ -93,7 +93,7 @@ func (q *queue) EnqueueNow(id []byte) error {
 	defer q.lock.Unlock()
 
 	// add the message to the queue
-	key := fmt.Sprintf("%s%d", queuePrefix, q.tail)
+	key := fmt.Sprintf("%s%d", q.queuePrefix, q.tail)
 	err := q.storage.Set([]byte(key), id)
 	if err != nil {
 		return err
@@ -101,7 +101,7 @@ func (q *queue) EnqueueNow(id []byte) error {
 
 	// delete the message from un ack
 	v := hex.EncodeToString(id)
-	ackKey := fmt.Sprintf("%s%s", queueAckPrefix, v)
+	ackKey := fmt.Sprintf("%s%s", q.queueAckPrefix, v)
 	err = q.storage.Delete([]byte(ackKey))
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (q *queue) EnqueueAfter(id []byte, t time.Time) error {
 		return err
 	}
 
-	ackKey := fmt.Sprintf("%s%s", queueAckPrefix, hex.EncodeToString(id))
+	ackKey := fmt.Sprintf("%s%s", q.queueAckPrefix, hex.EncodeToString(id))
 	return q.storage.Set([]byte(ackKey), d)
 }
 
@@ -125,7 +125,7 @@ func (q *queue) Dequeue() ([]byte, error) {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 
-	key := fmt.Sprintf("%s%d", queuePrefix, q.head)
+	key := fmt.Sprintf("%s%d", q.queuePrefix, q.head)
 	v, err := q.storage.Get([]byte(key))
 	if err != nil {
 		return nil, err
@@ -136,7 +136,7 @@ func (q *queue) Dequeue() ([]byte, error) {
 		return nil, err
 	}
 
-	ackKey := fmt.Sprintf("%s%s", queueAckPrefix, hex.EncodeToString(v))
+	ackKey := fmt.Sprintf("%s%s", q.queueAckPrefix, hex.EncodeToString(v))
 	err = q.storage.Set([]byte(ackKey), d)
 	if err != nil {
 		return nil, err
@@ -152,7 +152,7 @@ func (q *queue) Dequeue() ([]byte, error) {
 
 func (q *queue) Finished(id []byte) {
 	v := hex.EncodeToString(id)
-	ackKey := fmt.Sprintf("%s%s", queueAckPrefix, v)
+	ackKey := fmt.Sprintf("%s%s", q.queueAckPrefix, v)
 	err := q.storage.Delete([]byte(ackKey))
 	if err != nil {
 		log.Error(err)
@@ -161,7 +161,7 @@ func (q *queue) Finished(id []byte) {
 }
 
 func (q *queue) timeouts() [][]byte {
-	prefix := []byte(queueAckPrefix)
+	prefix := []byte(q.queueAckPrefix)
 	var ids [][]byte
 	q.storage.Iterate(prefix, func(key, value []byte) {
 		id := fetchBytes(string(key))
@@ -198,7 +198,7 @@ func fetchBytes(s string) []byte {
 // loadHeadTail loads any previous state if any available
 // logs any state retrieval errors
 func (q *queue) loadHeadTail() {
-	prefix := []byte(queuePrefix)
+	prefix := []byte(q.queuePrefix)
 	var nums []int
 	q.storage.Iterate(prefix, func(key, value []byte) {
 		num := fetchNumber(string(key))
