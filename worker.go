@@ -36,6 +36,7 @@ func processWork(work work) *Job {
 
 	res, err := runnerFunc(task.Args, job.Overrides)
 	task.Result = res
+	task.Error = ""
 	task.Tries++
 	if err != nil {
 		task.Error = err.Error()

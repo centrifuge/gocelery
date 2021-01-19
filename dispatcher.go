@@ -314,13 +314,21 @@ func (d *Dispatcher) jobFinished(job *Job) error {
 	err := d.updateJobData(job)
 	go func(subs []chan<- *Job) {
 		subs = append([]chan<- *Job{d.finished}, subs...)
-		t := time.NewTimer(time.Millisecond)
 		for _, sub := range subs {
-			select {
-			case sub <- job:
-			case <-t.C:
-				t.Stop()
-			}
+			go func(sub chan<- *Job) {
+				defer func() {
+					err := recover()
+					if err != nil {
+						log.Error(err)
+					}
+				}()
+				t := time.NewTimer(time.Minute)
+				select {
+				case sub <- job:
+				case <-t.C:
+					t.Stop()
+				}
+			}(sub)
 		}
 	}(d.subscribers[job.HexID()])
 	delete(d.subscribers, job.HexID())
@@ -359,10 +367,11 @@ func (d *Dispatcher) pushWork() {
 		}
 
 		task := job.LastTask()
-		w := work{
-			job:        job,
-			runner:     d.runners[job.Runner],
-			runnerFunc: d.runnerFuncs[task.RunnerFunc],
+		w := work{job: job}
+		if job.Runner != "" {
+			w.runner = d.runners[job.Runner]
+		} else {
+			w.runnerFunc = d.runnerFuncs[task.RunnerFunc]
 		}
 
 		count++

@@ -66,7 +66,10 @@ func enqueueTasks(t *testing.T, dispatcher *Dispatcher, tasks []string, jobCount
 		runner := ""
 		runnerFunc := task
 		switch task {
-		case "singleRunner", "multiRunner":
+		case "multiRunner":
+			errored = true
+			fallthrough
+		case "singleRunner":
 			runner = task
 			runnerFunc = "add"
 			fallthrough
@@ -113,7 +116,7 @@ func verifyJobs(t *testing.T, queue *Dispatcher, jobs map[string]jobResult, jobC
 }
 
 func TestDispatcher(t *testing.T) {
-	dispatcher := newDispatcher(t, 10)
+	dispatcher := newDispatcher(t, 100)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go dispatcher.Start(ctx)
@@ -162,9 +165,8 @@ func TestDispatcher_ValidUntil(t *testing.T) {
 }
 
 func TestResult_Await(t *testing.T) {
-	t.SkipNow()
 	dispatcher := newDispatcher(t, 4)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 	go dispatcher.Start(ctx)
 	task := "add"
