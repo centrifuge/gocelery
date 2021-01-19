@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func init() {
-	logging.SetAllLoggers(logging.LevelFatal)
-}
-
 func newDispatcher(t *testing.T, workers int) *Dispatcher {
 	levelDB, _ := getLevelDB(t, randomFilePath(t))
 	storage := NewLevelDBStorage(levelDB)
@@ -191,6 +187,7 @@ func BenchmarkDispatcherLevelDB10Workers(b *testing.B) {
 }
 
 func benchmarkDispatcher(b *testing.B, inmemory bool) {
+	logging.SetAllLoggers(logging.LevelFatal)
 	variants := []struct {
 		name     string
 		jobCount int
