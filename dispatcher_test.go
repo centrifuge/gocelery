@@ -2,6 +2,7 @@ package gocelery
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -10,10 +11,6 @@ import (
 	logging "github.com/ipfs/go-log"
 	"github.com/stretchr/testify/assert"
 )
-
-func init() {
-	logging.SetAllLoggers(logging.LevelFatal)
-}
 
 func newDispatcher(t *testing.T, workers int) *Dispatcher {
 	levelDB, _ := getLevelDB(t, randomFilePath(t))
@@ -30,13 +27,19 @@ func newDispatcherInmemory(t *testing.T, workers int) *Dispatcher {
 	return dispatcher
 }
 
-func TestDispatcher_Register(t *testing.T) {
-	queue := newDispatcher(t, 5)
+func TestDispatcher_Register_Subscribe(t *testing.T) {
+	dispatcher := newDispatcher(t, 5)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go queue.Start(ctx)
-	assert.True(t, queue.RegisterRunnerFunc("add", add))
-	assert.True(t, queue.RegisterRunner("error", singleRunner{}))
+	go dispatcher.Start(ctx)
+	assert.True(t, dispatcher.RegisterRunnerFunc("add", add))
+	assert.True(t, dispatcher.RegisterRunner("error", singleRunner{}))
+	id := randomBytes(32)
+	cn := make(chan *Job)
+	assert.True(t, dispatcher.Subscribe(id, cn))
+	assert.Len(t, dispatcher.subscribers[hex.EncodeToString(id)], 1)
+	assert.True(t, dispatcher.UnSubscribe(id, cn))
+	assert.Len(t, dispatcher.subscribers[hex.EncodeToString(id)], 0)
 }
 
 type jobResult struct {
@@ -45,11 +48,11 @@ type jobResult struct {
 	err       bool
 }
 
-func enqueueTasks(t *testing.T, queue *Dispatcher, tasks []string, jobCount int) map[string]jobResult {
-	assert.True(t, queue.RegisterRunnerFunc("add", add))
-	assert.True(t, queue.RegisterRunnerFunc("error", err))
-	assert.True(t, queue.RegisterRunner("singleRunner", singleRunner{}))
-	assert.True(t, queue.RegisterRunner("multiRunner", multiRunner{}))
+func enqueueTasks(t *testing.T, dispatcher *Dispatcher, tasks []string, jobCount int) map[string]jobResult {
+	assert.True(t, dispatcher.RegisterRunnerFunc("add", add))
+	assert.True(t, dispatcher.RegisterRunnerFunc("error", err))
+	assert.True(t, dispatcher.RegisterRunner("singleRunner", singleRunner{}))
+	assert.True(t, dispatcher.RegisterRunner("multiRunner", multiRunner{}))
 
 	// enqueue some jobs
 	jobs := make(map[string]jobResult)
@@ -58,12 +61,15 @@ func enqueueTasks(t *testing.T, queue *Dispatcher, tasks []string, jobCount int)
 		var args []interface{}
 		var or map[string]interface{}
 		var res interface{}
-		var err bool
+		var errored bool
 		validUntil := time.Now().UTC().Add(5 * time.Second)
 		runner := ""
 		runnerFunc := task
 		switch task {
-		case "singleRunner", "multiRunner":
+		case "multiRunner":
+			errored = true
+			fallthrough
+		case "singleRunner":
 			runner = task
 			runnerFunc = "add"
 			fallthrough
@@ -73,16 +79,18 @@ func enqueueTasks(t *testing.T, queue *Dispatcher, tasks []string, jobCount int)
 			or = map[string]interface{}{"b": b}
 			res = a + b
 		case "error":
-			err = true
+			errored = true
 		}
 
 		job := newJob(task, runner, runnerFunc, args, or, validUntil)
 		jobs[job.HexID()] = jobResult{
 			totalRuns: 1,
 			result:    res,
-			err:       err,
+			err:       errored,
 		}
-		assert.NoError(t, queue.Dispatch(job))
+		result, err := dispatcher.Dispatch(job)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, result)
 	}
 
 	return jobs
@@ -96,19 +104,19 @@ func verifyJobs(t *testing.T, queue *Dispatcher, jobs map[string]jobResult, jobC
 		delete(jobs, j.HexID())
 		assert.True(t, j.LastTask().DidRan())
 		if result.err {
-			assert.False(t, j.IsCompleted())
+			assert.False(t, j.IsSuccessful())
 			assert.False(t, j.IsValid())
 			assert.NotEmpty(t, j.LastTask().Error)
 			continue
 		}
-		assert.True(t, j.IsCompleted())
+		assert.True(t, j.IsSuccessful())
 		assert.Equal(t, result.result, j.LastTask().Result)
 	}
 	assert.Len(t, jobs, 0)
 }
 
 func TestDispatcher(t *testing.T) {
-	dispatcher := newDispatcher(t, 10)
+	dispatcher := newDispatcher(t, 100)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go dispatcher.Start(ctx)
@@ -146,12 +154,31 @@ func TestDispatcher_ValidUntil(t *testing.T) {
 	assert.True(t, dispatcher.RegisterRunnerFunc(task, err))
 	job := newJob(task, "", task, nil, nil, time.Now().UTC().Add(10*time.Second))
 	now := time.Now()
-	assert.NoError(t, dispatcher.Dispatch(job))
+	result, err := dispatcher.Dispatch(job)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, result)
 	job = <-dispatcher.OnFinished()
 	assert.True(t, time.Since(now) >= 10*time.Second)
 	assert.Len(t, job.Tasks, 1)
 	assert.True(t, job.Tasks[0].Tries > 1)
 	assert.NotEmpty(t, job.Tasks[0].Error)
+}
+
+func TestResult_Await(t *testing.T) {
+	dispatcher := newDispatcher(t, 4)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	t.Cleanup(cancel)
+	go dispatcher.Start(ctx)
+	task := "add"
+	assert.True(t, dispatcher.RegisterRunnerFunc(task, add))
+	job := newJob(task, "", task, []interface{}{1}, map[string]interface{}{"b": 2},
+		time.Now().UTC().Add(10*time.Second))
+	result, err := dispatcher.Dispatch(job)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, result)
+	res, err := result.Await(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, res)
 }
 
 func BenchmarkDispatcherInMemory10Workers(b *testing.B) {
@@ -163,6 +190,7 @@ func BenchmarkDispatcherLevelDB10Workers(b *testing.B) {
 }
 
 func benchmarkDispatcher(b *testing.B, inmemory bool) {
+	logging.SetAllLoggers(logging.LevelFatal)
 	variants := []struct {
 		name     string
 		jobCount int
