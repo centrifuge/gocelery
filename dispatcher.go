@@ -18,7 +18,7 @@ var (
 )
 
 const (
-	// MaxValidTime signifies how long is valid by default
+	// MaxValidTime signifies how long a job is valid by default
 	// Max set to 12 hrs
 	MaxValidTime = 12 * time.Hour
 
@@ -48,20 +48,37 @@ type enqueueJob struct {
 	err chan error
 }
 
+type fetchJob struct {
+	id  []byte
+	job chan *Job
+}
+
+type subscribe struct {
+	id    []byte
+	sub   chan<- *Job
+	ok    chan bool
+	unsub bool
+}
+
+// Dispatcher coordinates with the workers and queue in executing the jobs.
 type Dispatcher struct {
 	enqueue     chan enqueueJob
 	work        chan<- work
 	result      <-chan *Job
+	fetchJob    chan fetchJob
 	storage     Storage
 	queue       Queue
 	runners     map[string]Runner
 	runnerFuncs map[string]RunnerFunc
 	workers     []*worker
 	finished    chan *Job
+	subscribe   chan subscribe
+	subscribers map[string][]chan<- *Job
 	register    chan register
 	close       func()
 }
 
+// NewDispatcher for a new Dispatcher instance with a storage and Queue
 func NewDispatcher(workerCount int, storage Storage, queue Queue) *Dispatcher {
 	if workerCount == 0 {
 		workerCount = 1
@@ -72,6 +89,8 @@ func NewDispatcher(workerCount int, storage Storage, queue Queue) *Dispatcher {
 	result := make(chan *Job)
 	finished := make(chan *Job)
 	register := make(chan register)
+	fetchJob := make(chan fetchJob)
+	subscribe := make(chan subscribe)
 	var workers []*worker
 	for i := 0; i < workerCount; i++ {
 		workers = append(workers, newWorker(work, result))
@@ -88,33 +107,97 @@ func NewDispatcher(workerCount int, storage Storage, queue Queue) *Dispatcher {
 		workers:     workers,
 		finished:    finished,
 		register:    register,
+		fetchJob:    fetchJob,
+		subscribe:   subscribe,
+		subscribers: make(map[string][]chan<- *Job),
 		close: func() {
 			close(enqueue)
 			close(work)
 			close(result)
 			close(register)
 			close(finished)
+			close(fetchJob)
+			close(subscribe)
 		},
 	}
 }
 
-func (q *Dispatcher) OnFinished() <-chan *Job {
-	return q.finished
+func (d *Dispatcher) OnFinished() <-chan *Job {
+	return d.finished
 }
 
-func (q *Dispatcher) Dispatch(job *Job) error {
+func (d *Dispatcher) Dispatch(job *Job) (Result, error) {
 	ej := enqueueJob{
 		job: job,
 		err: make(chan error),
 	}
-	q.enqueue <- ej
-	return <-ej.err
+	d.enqueue <- ej
+	err := <-ej.err
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{
+		JobID:      job.ID,
+		Dispatcher: d,
+	}, nil
 }
 
-func (q *Dispatcher) Start(ctx context.Context) {
-	go q.queue.Start(ctx)
+func (d *Dispatcher) Job(id []byte) (*Job, error) {
+	res := make(chan *Job)
+	d.fetchJob <- fetchJob{
+		id:  id,
+		job: res,
+	}
+	job := <-res
+	if job == nil {
+		return nil, ErrNotFound
+	}
 
-	for _, w := range q.workers {
+	return job, nil
+}
+
+func (d *Dispatcher) fetchJobByID(id []byte) (*Job, error) {
+	res, err := d.storage.Get(fetchKey(id))
+	if err != nil {
+		return nil, fmt.Errorf("failed to failed job[%x]: %w", id, err)
+	}
+
+	dec := gob.NewDecoder(bytes.NewReader(res))
+	job := new(Job)
+	err = dec.Decode(job)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode job: %w", err)
+	}
+
+	return job, nil
+}
+
+func (d *Dispatcher) Subscribe(jobID []byte, sub chan<- *Job) bool {
+	req := subscribe{
+		id:    jobID,
+		sub:   sub,
+		ok:    make(chan bool),
+		unsub: false,
+	}
+	d.subscribe <- req
+	return <-req.ok
+}
+
+func (d *Dispatcher) UnSubscribe(jobID []byte, sub chan<- *Job) bool {
+	req := subscribe{
+		id:    jobID,
+		sub:   sub,
+		ok:    make(chan bool),
+		unsub: true,
+	}
+	d.subscribe <- req
+	return <-req.ok
+}
+
+func (d *Dispatcher) Start(ctx context.Context) {
+	go d.queue.Start(ctx)
+
+	for _, w := range d.workers {
 		go w.start(ctx)
 	}
 
@@ -124,62 +207,86 @@ func (q *Dispatcher) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Errorf("stopping queue: %v", ctx.Err())
-			q.close()
+			d.close()
 			return
-		case ej := <-q.enqueue:
-			err := q.enqueueJob(ej.job)
+		case sub := <-d.subscribe:
+			subs := d.subscribers[hex.EncodeToString(sub.id)]
+			if !sub.unsub {
+				subs = append(subs, sub.sub)
+			} else {
+				var ns []chan<- *Job
+				for _, s := range subs {
+					if s == sub.sub {
+						continue
+					}
+					ns = append(ns, s)
+				}
+				subs = ns
+			}
+			d.subscribers[hex.EncodeToString(sub.id)] = subs
+			go func() {
+				sub.ok <- true
+			}()
+		case fj := <-d.fetchJob:
+			job, err := d.fetchJobByID(fj.id)
+			if err != nil {
+				log.Error(err)
+			}
+			fj.job <- job
+		case ej := <-d.enqueue:
+			err := d.enqueueJob(ej.job)
 			go func() {
 				ej.err <- err
 			}()
-		case job := <-q.result:
-			err := q.processJob(job)
+		case job := <-d.result:
+			err := d.processJob(job)
 			if err != nil {
 				log.Errorf("failed to process job[%s]: %v", job.HexID(), err)
 			}
-		case r := <-q.register:
+		case r := <-d.register:
 			if r.runner == nil {
-				q.runnerFuncs[r.name] = r.runnerFunc
+				d.runnerFuncs[r.name] = r.runnerFunc
 			} else {
-				q.runners[r.name] = r.runner
+				d.runners[r.name] = r.runner
 			}
 			go func() {
 				r.resp <- true
 			}()
 		case <-tick.C:
-			q.pushWork()
+			d.pushWork()
 		}
 	}
 }
 
-func (q *Dispatcher) RegisterRunner(name string, runner Runner) bool {
+func (d *Dispatcher) RegisterRunner(name string, runner Runner) bool {
 	r := register{
 		name:   name,
 		runner: runner,
 		resp:   make(chan bool),
 	}
-	q.register <- r
+	d.register <- r
 	return <-r.resp
 }
 
-func (q *Dispatcher) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
+func (d *Dispatcher) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
 	r := register{
 		name:       name,
 		runnerFunc: runnerFunc,
 		resp:       make(chan bool),
 	}
-	q.register <- r
+	d.register <- r
 	return <-r.resp
 }
 
-func (q *Dispatcher) processJob(job *Job) (err error) {
-	if job.IsCompleted() {
+func (d *Dispatcher) processJob(job *Job) (err error) {
+	if job.isSuccessful() {
 		log.Debugf("job[%s] completed successfully...", job.HexID())
-		return q.jobFinished(job)
+		return d.jobFinished(job)
 	}
 
 	if !job.IsValid() {
 		log.Debugf("job[%s] expired...", job.HexID())
-		return q.jobFinished(job)
+		return d.jobFinished(job)
 	}
 
 	task := job.LastTask()
@@ -189,18 +296,29 @@ func (q *Dispatcher) processJob(job *Job) (err error) {
 	}
 
 	// re enqueue job
-	return q.enqueueJob(job)
+	return d.enqueueJob(job)
 }
 
-func (q *Dispatcher) jobFinished(job *Job) error {
-	q.queue.Finished(job.ID)
-	go func() {
-		q.finished <- job
-	}()
-	return q.updateJobData(job)
+func (d *Dispatcher) jobFinished(job *Job) error {
+	d.queue.Finished(job.ID)
+	job.FinishedAt = time.Now().UTC()
+	err := d.updateJobData(job)
+	go func(subs []chan<- *Job) {
+		subs = append([]chan<- *Job{d.finished}, subs...)
+		t := time.NewTimer(time.Millisecond)
+		for _, sub := range subs {
+			select {
+			case sub <- job:
+			case <-t.C:
+				t.Stop()
+			}
+		}
+	}(d.subscribers[job.HexID()])
+	delete(d.subscribers, job.HexID())
+	return err
 }
 
-func (q *Dispatcher) pushWork() {
+func (d *Dispatcher) pushWork() {
 	var count int
 	defer func() {
 		if count > 0 {
@@ -208,31 +326,23 @@ func (q *Dispatcher) pushWork() {
 		}
 	}()
 
-	max := len(q.workers) - len(q.work)
+	max := len(d.workers) - len(d.work)
 	for count < max {
-		id, err := q.queue.Dequeue()
+		id, err := d.queue.Dequeue()
 		if err != nil {
 			return
 		}
 
-		res, err := q.storage.Get(q.fetchKey(id))
+		job, err := d.fetchJobByID(id)
 		if err != nil {
-			log.Errorf("failed to get job from storage: %v", err)
-			continue
-		}
-
-		dec := gob.NewDecoder(bytes.NewReader(res))
-		job := new(Job)
-		err = dec.Decode(job)
-		if err != nil {
-			log.Errorf("failed to decode job: %v", err)
+			log.Errorf("failed to fetch job: %v", err)
 			continue
 		}
 
 		// job is not valid anymore, ack to queue
 		if !job.IsValid() {
 			log.Errorf("job[%s] expired...", job.HexID())
-			err = q.jobFinished(job)
+			err = d.jobFinished(job)
 			if err != nil {
 				log.Errorf("failed to send job finished: %v", err)
 			}
@@ -242,20 +352,20 @@ func (q *Dispatcher) pushWork() {
 		task := job.LastTask()
 		w := work{
 			job:        job,
-			runner:     q.runners[job.Runner],
-			runnerFunc: q.runnerFuncs[task.RunnerFunc],
+			runner:     d.runners[job.Runner],
+			runnerFunc: d.runnerFuncs[task.RunnerFunc],
 		}
 
 		count++
 		log.Debugf("dispatching job[%s]", job.HexID())
 		go func() {
-			q.work <- w
+			d.work <- w
 		}()
 	}
 }
 
-func (q *Dispatcher) updateJobData(job *Job) error {
-	key := q.fetchKey(job.ID)
+func (d *Dispatcher) updateJobData(job *Job) error {
+	key := fetchKey(job.ID)
 	var value bytes.Buffer
 	enc := gob.NewEncoder(&value)
 	err := enc.Encode(job)
@@ -263,11 +373,11 @@ func (q *Dispatcher) updateJobData(job *Job) error {
 		return fmt.Errorf("failed to gob encode the job: %w", err)
 	}
 
-	return q.storage.Set(key, value.Bytes())
+	return d.storage.Set(key, value.Bytes())
 }
 
-func (q *Dispatcher) enqueueJob(job *Job) error {
-	err := q.updateJobData(job)
+func (d *Dispatcher) enqueueJob(job *Job) error {
+	err := d.updateJobData(job)
 	if err != nil {
 		return err
 	}
@@ -277,7 +387,7 @@ func (q *Dispatcher) enqueueJob(job *Job) error {
 		delay = time.Now().UTC()
 	}
 
-	err = q.queue.EnqueueAfter(job.ID, delay)
+	err = d.queue.EnqueueAfter(job.ID, delay)
 	if err != nil {
 		return err
 	}
@@ -286,7 +396,7 @@ func (q *Dispatcher) enqueueJob(job *Job) error {
 	return nil
 }
 
-func (q *Dispatcher) fetchKey(id []byte) []byte {
+func fetchKey(id []byte) []byte {
 	return []byte(fmt.Sprintf("queue-jobs-%s", hex.EncodeToString(id)))
 }
 

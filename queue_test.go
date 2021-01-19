@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestQueue_(t *testing.T) {
+func TestQueue(t *testing.T) {
 	db, canc := getLevelDB(t, randomFilePath(t))
 	defer canc()
 	queue := NewQueue(NewLevelDBStorage(db), 0)
