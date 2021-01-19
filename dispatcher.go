@@ -75,7 +75,6 @@ type Dispatcher struct {
 	subscribe   chan subscribe
 	subscribers map[string][]chan<- *Job
 	register    chan register
-	close       func()
 }
 
 // NewDispatcher for a new Dispatcher instance with a storage and Queue
@@ -110,15 +109,6 @@ func NewDispatcher(workerCount int, storage Storage, queue Queue) *Dispatcher {
 		fetchJob:    fetchJob,
 		subscribe:   subscribe,
 		subscribers: make(map[string][]chan<- *Job),
-		close: func() {
-			close(enqueue)
-			close(work)
-			close(result)
-			close(register)
-			close(finished)
-			close(fetchJob)
-			close(subscribe)
-		},
 	}
 }
 
@@ -214,7 +204,6 @@ func (d *Dispatcher) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Errorf("stopping queue: %v", ctx.Err())
-			d.close()
 			return
 		case sub := <-d.subscribe:
 			subs := d.subscribers[hex.EncodeToString(sub.id)]
@@ -312,25 +301,24 @@ func (d *Dispatcher) jobFinished(job *Job) error {
 	d.queue.Finished(job.ID)
 	job.FinishedAt = time.Now().UTC()
 	err := d.updateJobData(job)
-	go func(subs []chan<- *Job) {
-		subs = append([]chan<- *Job{d.finished}, subs...)
-		for _, sub := range subs {
-			go func(sub chan<- *Job) {
-				defer func() {
-					err := recover()
-					if err != nil {
-						log.Error(err)
-					}
-				}()
-				t := time.NewTimer(time.Minute)
-				select {
-				case sub <- job:
-				case <-t.C:
-					t.Stop()
+	subs := d.subscribers[job.HexID()]
+	subs = append(subs, d.finished)
+	for _, sub := range subs {
+		go func(sub chan<- *Job) {
+			defer func() {
+				err := recover()
+				if err != nil {
+					log.Error(err)
 				}
-			}(sub)
-		}
-	}(d.subscribers[job.HexID()])
+			}()
+			t := time.NewTimer(time.Minute)
+			select {
+			case sub <- job:
+			case <-t.C:
+				t.Stop()
+			}
+		}(sub)
+	}
 	delete(d.subscribers, job.HexID())
 	return err
 }
