@@ -11,7 +11,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func TestInMemoryStaorage(t *testing.T) {
+func TestInMemoryStorage(t *testing.T) {
 	runs := 1000
 	storage := NewInMemoryStorage()
 	testStorage(t, runs, storage)

@@ -8,11 +8,13 @@ import (
 	"time"
 )
 
+// Result is the result of a Job
 type Result struct {
 	JobID      []byte
 	Dispatcher *Dispatcher
 }
 
+// Await waits for the job to be finished and return the result.
 func (r Result) Await(ctx context.Context) (res interface{}, err error) {
 	// subscribe for finish
 	sub := make(chan *Job)
@@ -65,6 +67,7 @@ func (t Task) DidRan() bool {
 	return t.Tries > 0
 }
 
+// IsSuccessful if a task is successful.
 func (t Task) IsSuccessful() bool {
 	return t.DidRan() && t.Error == ""
 }
@@ -81,12 +84,14 @@ type Job struct {
 	FinishedAt time.Time              `json:"finished_at"`
 }
 
+// NewRunnerFuncJob creates a new job with task as the runnerFunc
 func NewRunnerFuncJob(description, task string,
 	args []interface{}, overrides map[string]interface{},
 	validUntil time.Time) *Job {
 	return newJob(description, "", task, args, overrides, validUntil)
 }
 
+// NewRunnerJob creates a new job with runner and its first task
 func NewRunnerJob(description, runner, task string,
 	args []interface{}, overrides map[string]interface{},
 	validUntil time.Time) *Job {
@@ -115,10 +120,12 @@ func newJob(
 	}
 }
 
+// IsValid returns of the job is still valid.
 func (j Job) IsValid() bool {
 	return time.Now().UTC().Before(j.ValidUntil.UTC())
 }
 
+// IsSuccessful returns true if the job completed successfully
 func (j Job) IsSuccessful() bool {
 	if !j.HasCompleted() {
 		return false
@@ -136,6 +143,7 @@ func (j Job) isSuccessful() bool {
 	return res
 }
 
+// HasCompleted checks if the job has finished running.
 func (j Job) HasCompleted() bool {
 	// has expired already
 	if time.Now().UTC().After(j.ValidUntil) {
@@ -154,6 +162,7 @@ func (j Job) LastTask() *Task {
 	return j.Tasks[len(j.Tasks)-1]
 }
 
+// HexID returns a hex encoded string of 32 byte jobID
 func (j Job) HexID() string {
 	return hex.EncodeToString(j.ID)
 }

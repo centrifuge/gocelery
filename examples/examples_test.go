@@ -34,6 +34,7 @@ func (r runner) Next(task string) (next string, ok bool) {
 	return "", false
 }
 
+// ExampleDispatcher_Dispatch_runnerFunc runs a single `add` task with default validity.
 func ExampleDispatcher_Dispatch_runnerFunc() {
 	storage := gocelery.NewInMemoryStorage()
 	queue := gocelery.NewQueue(storage, 10*time.Minute)
@@ -54,6 +55,7 @@ func ExampleDispatcher_Dispatch_runnerFunc() {
 	// Output: 3 <nil>
 }
 
+// ExampleDispatcher_Dispatch_runnerFunc_fail runs a single `error` task with a 10 second validity.
 func ExampleDispatcher_Dispatch_runnerFunc_fail() {
 	storage := gocelery.NewInMemoryStorage()
 	queue := gocelery.NewQueue(storage, 10*time.Minute)
@@ -74,6 +76,7 @@ func ExampleDispatcher_Dispatch_runnerFunc_fail() {
 	// Output: <nil> this will always fail
 }
 
+// ExampleDispatcher_Dispatch_runner runs a single runner `add` task with default validity.
 func ExampleDispatcher_Dispatch_runner() {
 	storage := gocelery.NewInMemoryStorage()
 	queue := gocelery.NewQueue(storage, 10*time.Minute)

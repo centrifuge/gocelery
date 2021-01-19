@@ -122,10 +122,12 @@ func NewDispatcher(workerCount int, storage Storage, queue Queue) *Dispatcher {
 	}
 }
 
+// OnFinished returns a channel that gets updates for all finished tasks
 func (d *Dispatcher) OnFinished() <-chan *Job {
 	return d.finished
 }
 
+// Dispatch dispatches a job and returns a result.
 func (d *Dispatcher) Dispatch(job *Job) (Result, error) {
 	ej := enqueueJob{
 		job: job,
@@ -142,6 +144,7 @@ func (d *Dispatcher) Dispatch(job *Job) (Result, error) {
 	}, nil
 }
 
+// Job returns the Job associated with ID.
 func (d *Dispatcher) Job(id []byte) (*Job, error) {
 	res := make(chan *Job)
 	d.fetchJob <- fetchJob{
@@ -172,6 +175,8 @@ func (d *Dispatcher) fetchJobByID(id []byte) (*Job, error) {
 	return job, nil
 }
 
+// Subscribe to a specific jobID.
+// Once the job is complete, it is pushed to sub
 func (d *Dispatcher) Subscribe(jobID []byte, sub chan<- *Job) bool {
 	req := subscribe{
 		id:    jobID,
@@ -183,6 +188,7 @@ func (d *Dispatcher) Subscribe(jobID []byte, sub chan<- *Job) bool {
 	return <-req.ok
 }
 
+// UnSubscribe from any updates from the jobID
 func (d *Dispatcher) UnSubscribe(jobID []byte, sub chan<- *Job) bool {
 	req := subscribe{
 		id:    jobID,
@@ -194,6 +200,7 @@ func (d *Dispatcher) UnSubscribe(jobID []byte, sub chan<- *Job) bool {
 	return <-req.ok
 }
 
+// Start initiates the dispatcher functions.
 func (d *Dispatcher) Start(ctx context.Context) {
 	go d.queue.Start(ctx)
 
@@ -258,6 +265,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 	}
 }
 
+// RegisterRunner registers a runner
 func (d *Dispatcher) RegisterRunner(name string, runner Runner) bool {
 	r := register{
 		name:   name,
@@ -268,6 +276,7 @@ func (d *Dispatcher) RegisterRunner(name string, runner Runner) bool {
 	return <-r.resp
 }
 
+// RegisterRunnerFunc registers a runnerFunc
 func (d *Dispatcher) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool {
 	r := register{
 		name:       name,
