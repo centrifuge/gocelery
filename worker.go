@@ -39,6 +39,7 @@ func processWork(work work) *Job {
 	task.Error = ""
 	task.Tries++
 	if err != nil {
+		task.Result = nil
 		task.Error = err.Error()
 		return job
 	}
