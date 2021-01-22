@@ -29,3 +29,7 @@ coverage.out
 .idea
 
 vendor
+/bench.txt
+/cpu.out
+/mem.out
+/trace.out

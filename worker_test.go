@@ -1,242 +1,173 @@
 package gocelery
 
 import (
+	"context"
+	"encoding/hex"
 	"errors"
-	"fmt"
 	"math/rand"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-// add is test task method
-func add(a int, b int) int {
-	return a + b
+type test struct {
+	work   work
+	result interface{}
+	err    bool
 }
 
-// redisWorker creates redis celery worker
-func redisWorker(numWorkers int) *CeleryWorker {
-	broker := NewRedisCeleryBroker("redis://localhost:6379")
-	backend := NewRedisCeleryBackend("redis://localhost:6379")
-	celeryWorker := NewCeleryWorker(broker, backend, numWorkers, 1)
-	return celeryWorker
+func dispatchWork(runs int,
+	w chan work,
+	runnerFunc RunnerFunc,
+	runner Runner,
+	runnerName string,
+	args []interface{},
+	or map[string]interface{},
+	result interface{}, errored bool) map[string]test {
+	tests := make(map[string]test)
+	for i := 0; i < runs; i++ {
+		t := test{
+			work: work{
+				job: &Job{
+					ID:        randomBytes(32),
+					Desc:      runnerName,
+					Runner:    runnerName,
+					Overrides: or,
+					Tasks: []*Task{{
+						RunnerFunc: runnerName,
+						Args:       args,
+					}},
+				},
+				runnerFunc: runnerFunc,
+				runner:     runner,
+			},
+			result: result,
+			err:    errored,
+		}
+		tests[hex.EncodeToString(t.work.job.ID)] = t
+		go func(t test) {
+			w <- t.work
+		}(t)
+	}
+
+	return tests
 }
 
-// inMemoryWorker creates inmemory celery worker
-func inMemoryWorker(numWorkers int) *CeleryWorker {
-	broker := NewInMemoryBroker()
-	backend := NewInMemoryBackend()
-	celeryWorker := NewCeleryWorker(broker, backend, numWorkers, 1)
-	return celeryWorker
+func add(args []interface{}, overrides map[string]interface{}) (result interface{}, err error) {
+	a := args[0].(int)
+	b := overrides["b"].(int)
+	return a + b, nil
 }
 
-func levelDBWorker(t *testing.T, numWorkers int) (*CeleryWorker, func()) {
-	levelDB, funcC := getLevelDB(t)
-	broker := NewLevelDBBroker(levelDB, "test")
-	backend := NewLevelDBBackend(levelDB)
-	return NewCeleryWorker(broker, backend, numWorkers, 1), funcC
+func err(args []interface{}, overrides map[string]interface{}) (result interface{}, err error) {
+	return nil, errors.New("this will always fail")
 }
 
-func getWorkers(t *testing.T, numWorkers int) ([]*CeleryWorker, func()) {
-	levelDBWorker, funcC := levelDBWorker(t, numWorkers)
-	return []*CeleryWorker{
-		levelDBWorker,
-		inMemoryWorker(numWorkers),
-		redisWorker(numWorkers),
-	}, funcC
-}
-
-// registerTask registers add test task
-func registerTask(celeryWorker *CeleryWorker) string {
-	taskName := "add"
-	registeredTask := add
-	celeryWorker.Register(taskName, registeredTask)
-	return taskName
-}
-
-func runTestForEachWorker(testFunc func(celeryWorker *CeleryWorker, numWorkers int) error, numWorkers int, t *testing.T) {
-	workers, funcC := getWorkers(t, numWorkers)
-	defer funcC()
+func TestWorker_RunnerFunc(t *testing.T) {
+	w := make(chan work)
+	result := make(chan *Job)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	workers := []*worker{newWorker(w, result), newWorker(w, result)}
 	for _, worker := range workers {
-		err := testFunc(worker, numWorkers)
-		if err != nil {
-			t.Error(err)
+		go worker.start(ctx)
+	}
+
+	runs := 100
+	a, b := rand.Intn(1000), rand.Intn(1000)
+	or := map[string]interface{}{"b": b}
+	r := a + b
+	tests := dispatchWork(runs/2, w, add, nil, "test", []interface{}{a}, or, r, false)
+	testse := dispatchWork(runs/2, w, err, nil, "test", nil, nil, nil, true)
+	for i := 0; i < runs; i++ {
+		job := <-result
+		test, ok := tests[hex.EncodeToString(job.ID)]
+		if !ok {
+			test = testse[hex.EncodeToString(job.ID)]
 		}
-	}
-}
-
-func TestRegisterTask(t *testing.T) {
-	runTestForEachWorker(registerTaskTest, 1, t)
-}
-
-func registerTaskTest(celeryWorker *CeleryWorker, numWorkers int) error {
-	taskName := registerTask(celeryWorker)
-	receivedTask := celeryWorker.GetTask(taskName)
-	if receivedTask == nil {
-		return errors.New("failed to retrieve task")
-	}
-	return nil
-}
-
-func TestRunTask(t *testing.T) {
-	runTestForEachWorker(runTaskTest, 1, t)
-}
-
-func runTaskTest(celeryWorker *CeleryWorker, numWorkers int) error {
-	taskName := registerTask(celeryWorker)
-	// prepare args
-	args := []interface{}{
-		rand.Int(),
-		rand.Int(),
-	}
-	// Run task normally
-	res := add(args[0].(int), args[1].(int))
-	// construct task message
-	taskMessage := &TaskMessage{
-		ID:     generateUUID(),
-		Task:   taskName,
-		Args:   args,
-		Kwargs: nil,
-		Tries:  1,
-	}
-	resultMsg, err := celeryWorker.RunTask(taskMessage)
-	if err != nil {
-		return errors.New(fmt.Sprintf("failed to run celery task %v: %v", taskMessage, err))
-	}
-	reflectRes := resultMsg.Result.(int64)
-	// check result
-	if int64(res) != reflectRes {
-		return errors.New(fmt.Sprintf("reflect result %v is different from normal result %v", reflectRes, res))
-	}
-	return nil
-}
-
-func TestNumWorkers(t *testing.T) {
-	numWorkers := rand.Intn(10)
-	runTestForEachWorker(numWorkersTest, numWorkers, t)
-}
-
-func numWorkersTest(celeryWorker *CeleryWorker, numWorkers int) error {
-	celeryNumWorkers := celeryWorker.GetNumWorkers()
-	if numWorkers != celeryNumWorkers {
-		return errors.New(fmt.Sprintf("number of workers are different: %d vs %d", numWorkers, celeryNumWorkers))
-	}
-	return nil
-}
-
-func TestStartStop(t *testing.T) {
-	numWorkers := rand.Intn(10)
-	runTestForEachWorker(startStopTest, numWorkers, t)
-}
-
-func startStopTest(celeryWorker *CeleryWorker, numWorkers int) error {
-	_ = registerTask(celeryWorker)
-	celeryWorker.StartWorker()
-	time.Sleep(100 * time.Millisecond)
-	celeryWorker.StopWorker()
-	return nil
-}
-
-type retryableTask struct {
-	fail     bool
-	failFor  int
-	attempts int
-}
-
-func (r *retryableTask) Copy() (CeleryTask, error) { return r, nil }
-
-func (r *retryableTask) ParseKwargs(map[string]interface{}) error { return nil }
-
-func (r *retryableTask) RunTask() (interface{}, error) {
-	r.attempts++
-	if !r.fail {
-		return true, nil
-	}
-
-	if r.attempts <= r.failFor {
-		return nil, ErrTaskRetryable
-	}
-
-	return true, nil
-}
-
-func runRetryableTask(t *testing.T, c *CeleryClient, task Task, expectedAttempts int, shouldFail bool) {
-	res, err := c.Delay(task)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = res.Get(time.Second * 5 * time.Duration(expectedAttempts+1))
-	if err != nil {
-		if shouldFail {
-			return
+		assert.Equal(t, test.result, job.Tasks[0].Result)
+		assert.True(t, job.Tasks[0].DidRan())
+		if test.err {
+			assert.NotEmpty(t, job.Tasks[0].Error)
+			continue
 		}
-
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	retryTask := c.worker.GetTask(task.Name).(*retryableTask)
-	if retryTask.attempts != expectedAttempts {
-		t.Fatalf("Attempts: Got=%v; Expected=%v", retryTask.attempts, expectedAttempts)
+		assert.Empty(t, job.Tasks[0].Error)
 	}
 }
 
-func checkRetryTask(t *testing.T, c *CeleryClient, taskName string) {
-	// dont fail
-	retryTask := &retryableTask{fail: false}
-	c.Register(taskName, retryTask)
-	runRetryableTask(t, c, Task{Name: taskName}, 1, false)
+type singleRunner struct{}
 
-	// fail for 2 times with 3 retries
-	retryTask = &retryableTask{fail: true, failFor: 2}
-	c.Register(taskName, retryTask)
-	runRetryableTask(t, c, Task{Name: taskName, Settings: DefaultSettings()}, 3, false)
-
-	// fail for 3 times with 3 retries
-	retryTask = &retryableTask{fail: true, failFor: 3}
-	c.Register(taskName, retryTask)
-	runRetryableTask(t, c, Task{Name: taskName, Settings: DefaultSettings()}, 2, true)
+func (r singleRunner) New() Runner {
+	return singleRunner{}
 }
 
-func TestCeleryWorker_RunTask_retries(t *testing.T) {
-	t.Parallel()
-	ws, funcC := getWorkers(t, 10)
-	defer funcC()
-	for i, w := range ws {
-		c, _ := NewCeleryClient(w.broker, w.backend, w.numWorkers, w.waitTimeMS)
-		c.worker = w
-		go c.StartWorker()
-		checkRetryTask(t, c, fmt.Sprintf("task-%v", i))
-		c.StopWorker()
+func (r singleRunner) RunnerFunc(task string) RunnerFunc {
+	return add
+}
+
+func (r singleRunner) Next(task string) (next string, ok bool) {
+	return "", false
+}
+
+type multiRunner struct{}
+
+func (r multiRunner) New() Runner {
+	return multiRunner{}
+}
+
+func (r multiRunner) RunnerFunc(task string) RunnerFunc {
+	switch task {
+	case "add":
+		return add
+	default:
+		return err
 	}
 }
 
-func Test_getBackoffTime(t *testing.T) {
-	for i := 1; i < 1000; i++ {
-		d := getBackOffTime(uint(i))
-		if i < 60 && d.Seconds() != (defaultBackOff*time.Duration(i)).Seconds() {
-			t.Fail()
+func (r multiRunner) Next(task string) (next string, ok bool) {
+	switch task {
+	case "add":
+		return "error", true
+	default:
+		return "", false
+	}
+}
+
+func TestWorker_Runner(t *testing.T) {
+	w := make(chan work)
+	result := make(chan *Job)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	workers := []*worker{newWorker(w, result), newWorker(w, result), newWorker(w, result)}
+	for _, worker := range workers {
+		go worker.start(ctx)
+	}
+
+	runs := 1000
+	a, b := rand.Intn(1000), rand.Intn(1000)
+	or := map[string]interface{}{"b": b}
+	r := a + b
+	tests := dispatchWork(runs, w, nil, singleRunner{}, "test", []interface{}{a}, or, r, false)
+	testse := dispatchWork(runs, w, nil, multiRunner{}, "add", []interface{}{a}, or, r, false)
+	testse1 := dispatchWork(runs, w, nil, multiRunner{}, "error", []interface{}{a}, or, nil, true)
+	for i := 0; i < runs*3; i++ {
+		job := <-result
+		var tt test
+		var ok bool
+		for _, ts := range []map[string]test{tests, testse, testse1} {
+			tt, ok = ts[hex.EncodeToString(job.ID)]
+			if ok {
+				break
+			}
 		}
-
-		if i > 60 && d.Seconds() != maxBackoffTime.Seconds() {
-			t.Fail()
+		task := job.Tasks[0]
+		assert.True(t, task.DidRan())
+		if tt.err {
+			assert.NotEmpty(t, task.Error)
+			continue
 		}
+		assert.Equal(t, tt.result, task.Result)
+		assert.Empty(t, task.Error)
 	}
-}
-
-func Test_ValidUntil(t *testing.T) {
-	t.Parallel()
-	ws, funcC := getWorkers(t, 10)
-	defer funcC()
-	for i, w := range ws {
-		c, _ := NewCeleryClient(w.broker, w.backend, w.numWorkers, w.waitTimeMS)
-		c.worker = w
-		go c.StartWorker()
-		retryTask := &retryableTask{fail: true, failFor: 100000}
-		name := fmt.Sprintf("valid_until_task_%d", i)
-		c.Register(name, retryTask)
-		settings := DefaultSettings()
-		settings.ValidUntil = time.Now().Add(10 * time.Second)
-		runRetryableTask(t, c, Task{Name: name, Settings: settings}, 1, true)
-		c.StopWorker()
-	}
+	assert.Len(t, result, 0)
 }
