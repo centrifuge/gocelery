@@ -47,11 +47,11 @@ func (r Result) Await(ctx context.Context) (res interface{}, err error) {
 // Task represents a single task in a Job
 type Task struct {
 	RunnerFunc string        `json:"runnerFuncs"` // name of the runnerFuncs
-	Args       []interface{} `json:"args"`
-	Result     interface{}   `json:"result"`
-	Error      string        `json:"error"`
-	Tries      uint          `json:"tries"`
-	Delay      time.Time     `json:"delay"`
+	Args       []interface{} `json:"args"`        // arguments passed to this task
+	Result     interface{}   `json:"result"`      // result after the task run
+	Error      string        `json:"error"`       // error after task run
+	Tries      uint          `json:"tries"`       // number of times task was run.
+	Delay      time.Time     `json:"delay"`       // delay until ready to be run
 }
 
 func newTask(runnerFunc string, args []interface{}, delay time.Time) *Task {
@@ -75,13 +75,13 @@ func (t Task) IsSuccessful() bool {
 // Job represents a single prefix job
 // a job can contain multiple sub-tasks
 type Job struct {
-	ID         []byte                 `json:"JobID"`
-	Desc       string                 `json:"desc"`
-	Runner     string                 `json:"runner"`    // name of the Runner
-	Overrides  map[string]interface{} `json:"overrides"` // a prefix of overrides
-	Tasks      []*Task                `json:"tasks"`     // if this is a TaskChain then sub tasks and their results are here
-	ValidUntil time.Time              `json:"valid_until"`
-	FinishedAt time.Time              `json:"finished_at"`
+	ID         []byte                 `json:"JobID" swaggertype:"primitive,string"` // Job Identifier
+	Desc       string                 `json:"desc"`                                 // description of the Job
+	Runner     string                 `json:"runner"`                               // name of the Runner
+	Overrides  map[string]interface{} `json:"overrides"`                            // overrides for the Job
+	Tasks      []*Task                `json:"tasks"`                                // list of tasks ran under this Job
+	ValidUntil time.Time              `json:"valid_until"`                          // validity of the job
+	FinishedAt time.Time              `json:"finished_at"`                          // Job finished at. If empty, job is not complete yet
 }
 
 // NewRunnerFuncJob creates a new job with task as the runnerFunc
