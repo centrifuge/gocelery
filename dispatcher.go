@@ -300,6 +300,7 @@ func (d *Dispatcher) processJob(job *Job) (err error) {
 func (d *Dispatcher) jobFinished(job *Job) error {
 	d.queue.Finished(job.ID)
 	job.FinishedAt = time.Now().UTC()
+	job.Finished = true
 	err := d.updateJobData(job)
 	subs := d.subscribers[job.HexID()]
 	subs = append(subs, d.finished)

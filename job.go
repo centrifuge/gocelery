@@ -8,9 +8,23 @@ import (
 	"time"
 )
 
+// JobID is a unique ID for a given job
+type JobID []byte
+
+// MarshalJSON marshall bytes to hex.
+func (j JobID) MarshalJSON() ([]byte, error) {
+	str := "0x"
+	if len(j) > 0 {
+		str += hex.EncodeToString(j)
+	}
+
+	str = "\"" + str + "\""
+	return []byte(str), nil
+}
+
 // Result is the result of a Job
 type Result struct {
-	JobID      []byte
+	JobID      JobID
 	Dispatcher *Dispatcher
 }
 
@@ -75,13 +89,14 @@ func (t Task) IsSuccessful() bool {
 // Job represents a single prefix job
 // a job can contain multiple sub-tasks
 type Job struct {
-	ID         []byte                 `json:"JobID" swaggertype:"primitive,string"` // Job Identifier
+	ID         JobID                  `json:"JobID" swaggertype:"primitive,string"` // Job Identifier
 	Desc       string                 `json:"desc"`                                 // description of the Job
 	Runner     string                 `json:"runner"`                               // name of the Runner
 	Overrides  map[string]interface{} `json:"overrides"`                            // overrides for the Job
 	Tasks      []*Task                `json:"tasks"`                                // list of tasks ran under this Job
 	ValidUntil time.Time              `json:"valid_until"`                          // validity of the job
 	FinishedAt time.Time              `json:"finished_at"`                          // Job finished at. If empty, job is not complete yet
+	Finished   bool                   `json:"finished"`                             // job status
 }
 
 // NewRunnerFuncJob creates a new job with task as the runnerFunc
@@ -150,7 +165,7 @@ func (j Job) HasCompleted() bool {
 		return true
 	}
 
-	return !j.FinishedAt.IsZero()
+	return j.Finished
 }
 
 // LastTask returns the last task of the Job
