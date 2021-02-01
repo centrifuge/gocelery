@@ -2,7 +2,6 @@ package gocelery
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -34,12 +33,12 @@ func TestDispatcher_Register_Subscribe(t *testing.T) {
 	go dispatcher.Start(ctx)
 	assert.True(t, dispatcher.RegisterRunnerFunc("add", add))
 	assert.True(t, dispatcher.RegisterRunner("error", singleRunner{}))
-	id := randomBytes(32)
+	id := JobID(randomBytes(32))
 	cn := make(chan *Job)
 	assert.True(t, dispatcher.Subscribe(id, cn))
-	assert.Len(t, dispatcher.subscribers[hex.EncodeToString(id)], 1)
+	assert.Len(t, dispatcher.subscribers[id.Hex()], 1)
 	assert.True(t, dispatcher.UnSubscribe(id, cn))
-	assert.Len(t, dispatcher.subscribers[hex.EncodeToString(id)], 0)
+	assert.Len(t, dispatcher.subscribers[id.Hex()], 0)
 }
 
 type jobResult struct {
