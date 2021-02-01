@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -49,12 +48,12 @@ type enqueueJob struct {
 }
 
 type fetchJob struct {
-	id  []byte
+	id  JobID
 	job chan *Job
 }
 
 type subscribe struct {
-	id    []byte
+	id    JobID
 	sub   chan<- *Job
 	ok    chan bool
 	unsub bool
@@ -135,7 +134,7 @@ func (d *Dispatcher) Dispatch(job *Job) (Result, error) {
 }
 
 // Job returns the Job associated with ID.
-func (d *Dispatcher) Job(id []byte) (*Job, error) {
+func (d *Dispatcher) Job(id JobID) (*Job, error) {
 	res := make(chan *Job)
 	d.fetchJob <- fetchJob{
 		id:  id,
@@ -149,7 +148,7 @@ func (d *Dispatcher) Job(id []byte) (*Job, error) {
 	return job, nil
 }
 
-func (d *Dispatcher) fetchJobByID(id []byte) (*Job, error) {
+func (d *Dispatcher) fetchJobByID(id JobID) (*Job, error) {
 	res, err := d.storage.Get(fetchKey(id))
 	if err != nil {
 		return nil, fmt.Errorf("failed to failed job[%x]: %w", id, err)
@@ -167,7 +166,7 @@ func (d *Dispatcher) fetchJobByID(id []byte) (*Job, error) {
 
 // Subscribe to a specific jobID.
 // Once the job is complete, it is pushed to sub
-func (d *Dispatcher) Subscribe(jobID []byte, sub chan<- *Job) bool {
+func (d *Dispatcher) Subscribe(jobID JobID, sub chan<- *Job) bool {
 	req := subscribe{
 		id:    jobID,
 		sub:   sub,
@@ -179,7 +178,7 @@ func (d *Dispatcher) Subscribe(jobID []byte, sub chan<- *Job) bool {
 }
 
 // UnSubscribe from any updates from the jobID
-func (d *Dispatcher) UnSubscribe(jobID []byte, sub chan<- *Job) bool {
+func (d *Dispatcher) UnSubscribe(jobID JobID, sub chan<- *Job) bool {
 	req := subscribe{
 		id:    jobID,
 		sub:   sub,
@@ -206,7 +205,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 			log.Debugf("stopping queue: %v", ctx.Err())
 			return
 		case sub := <-d.subscribe:
-			subs := d.subscribers[hex.EncodeToString(sub.id)]
+			subs := d.subscribers[sub.id.Hex()]
 			if !sub.unsub {
 				subs = append(subs, sub.sub)
 			} else {
@@ -219,7 +218,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 				}
 				subs = ns
 			}
-			d.subscribers[hex.EncodeToString(sub.id)] = subs
+			d.subscribers[sub.id.Hex()] = subs
 			go func() {
 				sub.ok <- true
 			}()
@@ -403,8 +402,8 @@ func (d *Dispatcher) enqueueJob(job *Job) error {
 	return nil
 }
 
-func fetchKey(id []byte) []byte {
-	return []byte(fmt.Sprintf("queue-jobs-%s", hex.EncodeToString(id)))
+func fetchKey(id JobID) []byte {
+	return []byte(fmt.Sprintf("queue-jobs-%s", id.Hex()))
 }
 
 type register struct {

@@ -22,8 +22,8 @@ func (j JobID) MarshalJSON() ([]byte, error) {
 	return []byte(str), nil
 }
 
-// String returns hex encoded jobID.
-func (j JobID) String() string {
+// Hex returns hex encoded jobID.
+func (j JobID) Hex() string {
 	return "0x" + hex.EncodeToString(j)
 }
 
@@ -37,7 +37,10 @@ type Result struct {
 func (r Result) Await(ctx context.Context) (res interface{}, err error) {
 	// subscribe for finish
 	sub := make(chan *Job)
-	r.Dispatcher.Subscribe(r.JobID, sub)
+	if !r.Dispatcher.Subscribe(r.JobID, sub) {
+		return nil, errors.New("failed to subscribe for job completion")
+	}
+
 	defer r.Dispatcher.UnSubscribe(r.JobID, sub)
 
 	// fetch job
@@ -184,7 +187,7 @@ func (j Job) LastTask() *Task {
 
 // HexID returns a hex encoded string of 32 byte jobID
 func (j Job) HexID() string {
-	return j.ID.String()
+	return j.ID.Hex()
 }
 
 // RunnerFunc is the func that is called to execute the Job
