@@ -22,6 +22,11 @@ func (j JobID) MarshalJSON() ([]byte, error) {
 	return []byte(str), nil
 }
 
+// String returns hex encoded jobID.
+func (j JobID) String() string {
+	return "0x" + hex.EncodeToString(j)
+}
+
 // Result is the result of a Job
 type Result struct {
 	JobID      JobID
@@ -179,7 +184,7 @@ func (j Job) LastTask() *Task {
 
 // HexID returns a hex encoded string of 32 byte jobID
 func (j Job) HexID() string {
-	return hex.EncodeToString(j.ID)
+	return j.ID.String()
 }
 
 // RunnerFunc is the func that is called to execute the Job
