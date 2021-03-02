@@ -64,13 +64,13 @@ func (w *worker) start(ctx context.Context) {
 		select {
 		case work, ok := <-w.work:
 			if !ok {
-				log.Debugf("stopping worker: %v", "work chan closed")
+				log.Infof("stopping worker: %v", "work chan closed")
 				return
 			}
 			job := processWork(work)
 			w.result <- job
 		case <-ctx.Done():
-			log.Debugf("stopping worker: %v", ctx.Err())
+			log.Infof("stopping worker: %v", ctx.Err())
 			return
 		}
 	}

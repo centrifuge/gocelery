@@ -202,7 +202,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("stopping queue: %v", ctx.Err())
+			log.Infof("stopping queue: %v", ctx.Err())
 			return
 		case sub := <-d.subscribe:
 			subs := d.subscribers[sub.id.Hex()]
@@ -277,12 +277,12 @@ func (d *Dispatcher) RegisterRunnerFunc(name string, runnerFunc RunnerFunc) bool
 
 func (d *Dispatcher) processJob(job *Job) (err error) {
 	if job.isSuccessful() {
-		log.Debugf("job[%s] completed successfully...", job.HexID())
+		log.Infof("job[%s] completed successfully...", job.HexID())
 		return d.jobFinished(job)
 	}
 
 	if !job.IsValid() {
-		log.Debugf("job[%s] expired...", job.HexID())
+		log.Infof("job[%s] expired...", job.HexID())
 		return d.jobFinished(job)
 	}
 
@@ -327,7 +327,7 @@ func (d *Dispatcher) pushWork() {
 	var count int
 	defer func() {
 		if count > 0 {
-			log.Debugf("dispatched %d jobs", count)
+			log.Infof("dispatched %d jobs", count)
 		}
 	}()
 
@@ -346,7 +346,7 @@ func (d *Dispatcher) pushWork() {
 
 		// job is not valid anymore, ack to queue
 		if !job.IsValid() {
-			log.Debugf("job[%s] expired...", job.HexID())
+			log.Infof("job[%s] expired...", job.HexID())
 			err = d.jobFinished(job)
 			if err != nil {
 				log.Errorf("failed to send job finished: %v", err)
@@ -363,7 +363,7 @@ func (d *Dispatcher) pushWork() {
 		}
 
 		count++
-		log.Debugf("dispatching job[%s]", job.HexID())
+		log.Infof("dispatching job[%s]", job.HexID())
 		go func() {
 			d.work <- w
 		}()
@@ -398,7 +398,7 @@ func (d *Dispatcher) enqueueJob(job *Job) error {
 		return err
 	}
 
-	log.Debugf("job[%s] enqueued...", job.HexID())
+	log.Infof("job[%s] enqueued...", job.HexID())
 	return nil
 }
 
