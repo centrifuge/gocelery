@@ -61,7 +61,7 @@ func (q *queue) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("stopping queue: %v", ctx.Err())
+			log.Infof("stopping queue: %v", ctx.Err())
 			return
 		case <-tick.C:
 			ids := q.timeouts()
