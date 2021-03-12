@@ -289,7 +289,9 @@ func (d *Dispatcher) processJob(job *Job) (err error) {
 	task := job.LastTask()
 	// task ran and failed, then increase the delay
 	if task.DidRan() && task.Error != "" {
+		log.Infof("job[%s]: Task %s failed with error: %s", job.HexID(), task.RunnerFunc, task.Error)
 		task.Delay = time.Now().UTC().Add(getBackOffTime(task.Tries))
+		log.Infof("job[%s]: will re-try at %s", job.HexID(), task.Delay.String())
 	}
 
 	// re enqueue job
