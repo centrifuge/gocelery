@@ -101,7 +101,7 @@ func verifyJobs(t *testing.T, queue *Dispatcher, jobs map[string]jobResult, jobC
 		j := <-queue.OnFinished()
 		result := jobs[j.HexID()]
 		delete(jobs, j.HexID())
-		assert.True(t, j.LastTask().DidRan())
+		assert.True(t, j.LastTask().DidRun())
 		if result.err {
 			assert.False(t, j.IsSuccessful())
 			assert.False(t, j.IsValid())

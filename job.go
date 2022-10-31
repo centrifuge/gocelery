@@ -84,14 +84,14 @@ func newTask(runnerFunc string, args []interface{}, delay time.Time) *Task {
 	}
 }
 
-// DidRan returns if the task was run at least once.
-func (t Task) DidRan() bool {
+// DidRun returns if the task was run at least once.
+func (t Task) DidRun() bool {
 	return t.Tries > 0
 }
 
 // IsSuccessful if a task is successful.
 func (t Task) IsSuccessful() bool {
-	return t.DidRan() && t.Error == ""
+	return t.DidRun() && t.Error == ""
 }
 
 // Job represents a single prefix job
