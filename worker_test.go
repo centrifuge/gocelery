@@ -16,14 +16,16 @@ type test struct {
 	err    bool
 }
 
-func dispatchWork(runs int,
+func dispatchWork(
+	runs int,
 	w chan work,
 	runnerFunc RunnerFunc,
 	runner Runner,
 	runnerName string,
 	args []interface{},
-	or map[string]interface{},
-	result interface{}, errored bool) map[string]test {
+	overrides map[string]interface{},
+	result interface{}, errored bool,
+) map[string]test {
 	tests := make(map[string]test)
 	for i := 0; i < runs; i++ {
 		t := test{
@@ -32,7 +34,7 @@ func dispatchWork(runs int,
 					ID:        randomBytes(32),
 					Desc:      runnerName,
 					Runner:    runnerName,
-					Overrides: or,
+					Overrides: overrides,
 					Tasks: []*Task{{
 						RunnerFunc: runnerName,
 						Args:       args,
@@ -86,7 +88,7 @@ func TestWorker_RunnerFunc(t *testing.T) {
 			test = testse[hex.EncodeToString(job.ID)]
 		}
 		assert.Equal(t, test.result, job.Tasks[0].Result)
-		assert.True(t, job.Tasks[0].DidRan())
+		assert.True(t, job.Tasks[0].DidRun())
 		if test.err {
 			assert.NotEmpty(t, job.Tasks[0].Error)
 			continue
@@ -150,18 +152,19 @@ func TestWorker_Runner(t *testing.T) {
 	tests := dispatchWork(runs, w, nil, singleRunner{}, "test", []interface{}{a}, or, r, false)
 	testse := dispatchWork(runs, w, nil, multiRunner{}, "add", []interface{}{a}, or, r, false)
 	testse1 := dispatchWork(runs, w, nil, multiRunner{}, "error", []interface{}{a}, or, nil, true)
+	testse2 := dispatchWork(runs, w, nil, nil, "nil-runner", []interface{}{a}, or, nil, true)
 	for i := 0; i < runs*3; i++ {
 		job := <-result
 		var tt test
 		var ok bool
-		for _, ts := range []map[string]test{tests, testse, testse1} {
+		for _, ts := range []map[string]test{tests, testse, testse1, testse2} {
 			tt, ok = ts[hex.EncodeToString(job.ID)]
 			if ok {
 				break
 			}
 		}
 		task := job.Tasks[0]
-		assert.True(t, task.DidRan())
+		assert.True(t, task.DidRun())
 		if tt.err {
 			assert.NotEmpty(t, task.Error)
 			continue
@@ -170,4 +173,31 @@ func TestWorker_Runner(t *testing.T) {
 		assert.Empty(t, task.Error)
 	}
 	assert.Len(t, result, 0)
+}
+
+func TestWorker_NilRunner(t *testing.T) {
+	w := make(chan work)
+	result := make(chan *Job)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	workers := []*worker{newWorker(w, result), newWorker(w, result), newWorker(w, result)}
+	for _, worker := range workers {
+		go worker.start(ctx)
+	}
+
+	runs := 100
+	a, b := rand.Intn(1000), rand.Intn(1000)
+	or := map[string]interface{}{"b": b}
+
+	tests := dispatchWork(runs, w, nil, nil, "nil-runner", []interface{}{a}, or, nil, true)
+	for i := 0; i < runs; i++ {
+		job := <-result
+
+		delete(tests, hex.EncodeToString(job.ID))
+		task := job.Tasks[0]
+		assert.False(t, task.DidRun())
+		assert.NotEmpty(t, task.Error)
+	}
+	assert.Len(t, result, 0)
+	assert.Len(t, tests, 0)
 }

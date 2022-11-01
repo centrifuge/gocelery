@@ -30,6 +30,14 @@ func processWork(work work) *Job {
 	runnerFunc := work.runnerFunc
 	var runner Runner
 	if runnerFunc == nil {
+		if work.runner == nil {
+			log.Errorf("Runner for job - %s / task - %s is nil", job.ID.Hex(), task.RunnerFunc)
+			task.Result = nil
+			task.Error = "invalid state / nil runner"
+			job.ValidUntil = time.Now()
+			return job
+		}
+
 		runner = work.runner.New()
 		runnerFunc = runner.RunnerFunc(task.RunnerFunc)
 	}
